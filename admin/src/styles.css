@@ -1,0 +1,269 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Outfit:wght@400;500;600&display=swap');
+
+:root {
+  --cream: #f6f1e8;
+  --ink: #1c1917;
+  --sand: #ece4d4;
+  --rust: #9a3412;
+  --white: #ffffff;
+  --radius: 16px;
+  font-family: Outfit, system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--cream);
+  line-height: 1.5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--cream);
+}
+
+h1,
+h2,
+.serif {
+  font-family: Fraunces, Georgia, serif;
+  font-weight: 500;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.layout {
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgb(28 25 23 / 10%);
+  background: rgb(246 241 232 / 92%);
+  backdrop-filter: blur(8px);
+}
+
+.brand {
+  font-family: Fraunces, Georgia, serif;
+  font-size: 1.4rem;
+  text-decoration: none;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.95rem;
+}
+
+.nav a {
+  text-decoration: none;
+  color: rgb(28 25 23 / 75%);
+}
+
+.nav a.active,
+.nav a:hover {
+  color: var(--ink);
+}
+
+.muted {
+  color: rgb(28 25 23 / 55%);
+  font-size: 0.9rem;
+}
+
+.page {
+  width: min(1100px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2.5rem 0 4rem;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.card {
+  background: var(--white);
+  border: 1px solid rgb(28 25 23 / 10%);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+.grid-2 {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .grid-2 {
+    grid-template-columns: 360px 1fr;
+    align-items: start;
+  }
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+input,
+select,
+textarea {
+  border: 1px solid rgb(28 25 23 / 15%);
+  background: var(--white);
+  border-radius: 12px;
+  padding: 0.65rem 0.8rem;
+}
+
+textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.7rem 1.15rem;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--ink);
+  color: var(--cream);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid rgb(28 25 23 / 15%);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--rust);
+  border: 1px solid rgb(154 52 18 / 30%);
+}
+
+.error {
+  color: var(--rust);
+  font-size: 0.9rem;
+}
+
+.ok {
+  color: #3f6212;
+  font-size: 0.9rem;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.7rem 0.4rem;
+  border-bottom: 1px solid rgb(28 25 23 / 8%);
+  vertical-align: top;
+}
+
+.thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--sand);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.75rem;
+  background: var(--sand);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3f6212;
+}
+
+.dot.off {
+  background: rgb(28 25 23 / 30%);
+}
+
+.login-wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.login-card {
+  width: min(420px, 100%);
+}
+
+.kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.75rem;
+  color: var(--rust);
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.flash {
+  border-radius: 12px;
+  background: #ecfccb;
+  color: #3f6212;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9rem;
+}

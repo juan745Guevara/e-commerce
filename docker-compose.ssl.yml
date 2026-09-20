@@ -1,0 +1,32 @@
+services:
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_HOST: ${API_HOST}
+      ADMIN_HOST: ${ADMIN_HOST}
+      STOREFRONT_HOST: ${STOREFRONT_HOST}
+      SSL_CERT_NAME: ${SSL_CERT_NAME}
+    volumes:
+      - ./deploy/nginx/ssl.conf.template:/tmp/ssl.conf.template:ro
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: envsubst '$${API_HOST} $${ADMIN_HOST} $${STOREFRONT_HOST} $${SSL_CERT_NAME}' < /tmp/ssl.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done
+    networks:
+      - internal
+
+volumes:
+  certbot_www:
+  certbot_certs:

@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+.git
+.env
+.env.*
+*.log
+.wa-auth
+.agents
+.claude
+.cursor
+.devin
+generated
+test
+**/*spec.ts
+README.md

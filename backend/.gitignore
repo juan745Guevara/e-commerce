@@ -1,0 +1,37 @@
+# compiled output
+/dist
+/build
+/generated
+
+# dependencies
+/node_modules
+
+# logs
+logs
+*.log
+npm-debug.log*
+
+# tests
+/coverage
+
+# env
+.env
+.env.*.local
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+
+# Prisma
+/generated/prisma
+
+# Prisma CLI skill sync leftovers
+/.agents
+/.claude
+/.cursor
+/.devin
+
+# WhatsApp Baileys session
+/.wa-auth
