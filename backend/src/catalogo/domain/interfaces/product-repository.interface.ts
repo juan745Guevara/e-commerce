@@ -29,9 +29,18 @@ export type UpdateProductData = {
 
 export interface IProductRepository {
   findAll(filters: ProductFilters): Promise<Product[]>;
-  findById(id: string): Promise<Product | null>;
+  findById(id: string, tx?: unknown): Promise<Product | null>;
   create(data: CreateProductData): Promise<Product>;
   update(id: string, data: UpdateProductData): Promise<Product>;
   updateStock(id: string, stock: number): Promise<Product>;
+  /**
+   * Atomically decrements stock only if at least `quantity` units are
+   * available (`stock >= quantity`). Returns `false` without changing
+   * anything when there isn't enough stock, instead of racing a
+   * read-then-write against concurrent checkouts.
+   */
+  decrementStock(id: string, quantity: number, tx?: unknown): Promise<boolean>;
+  /** Atomically adds `quantity` back to stock (e.g. on order cancellation). */
+  incrementStock(id: string, quantity: number, tx?: unknown): Promise<void>;
   delete(id: string): Promise<void>;
 }

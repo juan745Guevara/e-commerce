@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Cart as PrismaCart, CartItem as PrismaCartItem, Product } from '@prisma/client';
+import { Cart as PrismaCart, CartItem as PrismaCartItem, Prisma, Product } from '@prisma/client';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service.js';
 import { CartItem } from '../../domain/entities/cart-item.entity.js';
 import { Cart } from '../../domain/entities/cart.entity.js';
@@ -71,8 +71,9 @@ export class PrismaCartRepository implements ICartRepository {
     return this.toDomain(row);
   }
 
-  async clear(cartId: string): Promise<void> {
-    await this.prisma.cartItem.deleteMany({ where: { cartId } });
+  async clear(cartId: string, tx?: unknown): Promise<void> {
+    const db = (tx as Prisma.TransactionClient | undefined) ?? this.prisma;
+    await db.cartItem.deleteMany({ where: { cartId } });
   }
 
   private toDomain(row: CartRecord): Cart {

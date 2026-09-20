@@ -20,6 +20,6 @@ export interface IOrderRepository {
   findById(id: string): Promise<Order | null>;
   findByUserId(userId: string): Promise<Order[]>;
   findAll(): Promise<Order[]>;
-  create(data: CreateOrderData): Promise<Order>;
-  updateStatus(id: string, status: OrderStatus): Promise<Order>;
+  create(data: CreateOrderData, tx?: unknown): Promise<Order>;
+  updateStatus(id: string, status: OrderStatus, tx?: unknown): Promise<Order>;
 }

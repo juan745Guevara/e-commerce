@@ -9,6 +9,8 @@ import type {
   UpdateProductData,
 } from '../../domain/interfaces/product-repository.interface.js';
 
+type Db = PrismaService | Prisma.TransactionClient;
+
 @Injectable()
 export class PrismaProductRepository implements IProductRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -21,8 +23,8 @@ export class PrismaProductRepository implements IProductRepository {
     return rows.map((row) => this.toDomain(row));
   }
 
-  async findById(id: string): Promise<Product | null> {
-    const row = await this.prisma.product.findUnique({ where: { id } });
+  async findById(id: string, tx?: unknown): Promise<Product | null> {
+    const row = await this.db(tx).product.findUnique({ where: { id } });
     return row ? this.toDomain(row) : null;
   }
 
@@ -64,8 +66,31 @@ export class PrismaProductRepository implements IProductRepository {
     return this.toDomain(row);
   }
 
+  async decrementStock(
+    id: string,
+    quantity: number,
+    tx?: unknown,
+  ): Promise<boolean> {
+    const result = await this.db(tx).product.updateMany({
+      where: { id, stock: { gte: quantity } },
+      data: { stock: { decrement: quantity } },
+    });
+    return result.count === 1;
+  }
+
+  async incrementStock(id: string, quantity: number, tx?: unknown): Promise<void> {
+    await this.db(tx).product.update({
+      where: { id },
+      data: { stock: { increment: quantity } },
+    });
+  }
+
   async delete(id: string): Promise<void> {
     await this.prisma.product.delete({ where: { id } });
+  }
+
+  private db(tx?: unknown): Db {
+    return (tx as Prisma.TransactionClient | undefined) ?? this.prisma;
   }
 
   private toWhere(filters: ProductFilters): Prisma.ProductWhereInput {

@@ -11,5 +11,5 @@ export interface ICartRepository {
     quantity: number,
   ): Promise<Cart>;
   removeItem(cartId: string, productId: string): Promise<Cart>;
-  clear(cartId: string): Promise<void>;
+  clear(cartId: string, tx?: unknown): Promise<void>;
 }

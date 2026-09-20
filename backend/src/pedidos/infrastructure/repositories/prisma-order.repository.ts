@@ -14,6 +14,7 @@ import type {
 } from '../../domain/interfaces/order-repository.interface.js';
 
 type OrderRecord = PrismaOrder & { items: PrismaOrderItem[] };
+type Db = PrismaService | Prisma.TransactionClient;
 
 const orderInclude = {
   items: {
@@ -50,8 +51,8 @@ export class PrismaOrderRepository implements IOrderRepository {
     return rows.map((row) => this.toDomain(row));
   }
 
-  async create(data: CreateOrderData): Promise<Order> {
-    const row = await this.prisma.order.create({
+  async create(data: CreateOrderData, tx?: unknown): Promise<Order> {
+    const row = await this.db(tx).order.create({
       data: {
         userId: data.userId,
         total: new Prisma.Decimal(data.total),
@@ -70,13 +71,21 @@ export class PrismaOrderRepository implements IOrderRepository {
     return this.toDomain(row);
   }
 
-  async updateStatus(id: string, status: OrderStatus): Promise<Order> {
-    const row = await this.prisma.order.update({
+  async updateStatus(
+    id: string,
+    status: OrderStatus,
+    tx?: unknown,
+  ): Promise<Order> {
+    const row = await this.db(tx).order.update({
       where: { id },
       data: { status },
       include: orderInclude,
     });
     return this.toDomain(row);
+  }
+
+  private db(tx?: unknown): Db {
+    return (tx as Prisma.TransactionClient | undefined) ?? this.prisma;
   }
 
   private toDomain(row: OrderRecord): Order {
