@@ -1,36 +1,92 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Storefront — Atelier
 
-## Getting Started
+Vitrina pública de la tienda (Next.js 16, App Router, React 19, Tailwind 4). El overview del monorepo está en el [README raíz](../README.md).
 
-First, run the development server:
+Corre en el puerto **3001** (el 3000 lo usa la API).
+
+## Qué hace
+
+- Home y catálogo con ISR (revalidación cada 120 s)
+- Ficha de producto
+- Registro / login / logout
+- Carrito, checkout y historial de pedidos
+- Checkout en dos pasos: crea el pedido y cobra con el token de la pasarela
+
+El catálogo se pide al backend desde el servidor. Auth, carrito, pedidos y pagos van por Route Handlers en `/api/*` para no exponer el JWT al navegador.
+
+## Rutas
+
+| Ruta | Descripción |
+| --- | --- |
+| `/` | Home con destacados |
+| `/catalogo` | Listado con filtro por categoría y texto |
+| `/producto/[id]` | Detalle |
+| `/login` | Ingreso |
+| `/registro` | Alta de cliente (email, password, teléfono opcional) |
+| `/carrito` | Carrito |
+| `/checkout` | Confirmar pedido y pagar |
+| `/pedidos` | Pedidos del usuario |
+
+## BFF (`src/app/api`)
+
+El cliente del browser usa `baseUrl: "/api"`. Esos handlers reenvían a `API_URL` con el JWT de la cookie.
+
+| Handler | Backend |
+| --- | --- |
+| `POST /api/auth/register` | `POST /auth/register` |
+| `POST /api/auth/login` | `POST /auth/login` + cookie `access_token` |
+| `POST /api/auth/logout` | borra la cookie |
+| `GET /api/auth/me` | valida la sesión |
+| `GET/POST/PATCH/DELETE /api/carrito…` | `/carrito` |
+| `GET /api/pedidos` | `GET /pedidos` |
+| `POST /api/pedidos/checkout` | `POST /pedidos/checkout` |
+| `POST /api/pagos/charge` | `POST /pagos/charge` |
+
+Cookie `access_token`: httpOnly, `SameSite=Lax`, 7 días. `COOKIE_SECURE=true` fuerza HTTPS; en local deja `false`.
+
+`JWT_SECRET` debe coincidir con el backend: `getSessionUser()` verifica el token en el storefront.
+
+## Arranque local
+
+La API tiene que estar en `http://localhost:3000`.
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre [http://localhost:3001](http://localhost:3001).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Variables de entorno
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```env
+API_URL=http://localhost:3000
+JWT_SECRET=el-mismo-secreto-del-backend
+COOKIE_SECURE=false
+```
 
-## Learn More
+En Docker, `API_URL` apunta a `http://backend:3000`.
 
-To learn more about Next.js, take a look at the following resources:
+## Estructura
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/app/          páginas y Route Handlers
+src/components/   UI (catálogo, carrito, checkout, auth)
+src/lib/api/      cliente HTTP (server y browser)
+src/lib/auth/     cookie y sesión
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Imágenes remotas: solo `res.cloudinary.com` (`next.config.ts`). Build con `output: "standalone"` para el Dockerfile.
 
-## Deploy on Vercel
+## Scripts
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Script | Uso |
+| --- | --- |
+| `npm run dev` | Next.js en `:3001` |
+| `npm run build` | Build de producción |
+| `npm start` | Servir el build en `:3001` |
+| `npm run lint` | ESLint |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Docker
+
+El `Dockerfile` genera el standalone de Next y sirve `server.js` como usuario `nextjs`. Nginx de la raíz enruta `STOREFRONT_HOST` a este contenedor.
