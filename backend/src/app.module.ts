@@ -8,7 +8,6 @@ import { PedidosModule } from './pedidos/pedidos.module.js';
 import { PagosModule } from './pagos/pagos.module.js';
 import { NotificacionesModule } from './notificaciones/notificaciones.module.js';
 import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
 import { PrismaModule } from './shared/infrastructure/prisma/prisma.module.js';
 
 @Module({
@@ -27,6 +26,5 @@ import { PrismaModule } from './shared/infrastructure/prisma/prisma.module.js';
     NotificacionesModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}

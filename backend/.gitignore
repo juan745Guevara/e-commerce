@@ -2,6 +2,7 @@
 /dist
 /build
 /generated
+*.tsbuildinfo
 
 # dependencies
 /node_modules
