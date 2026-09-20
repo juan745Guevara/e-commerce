@@ -10,14 +10,16 @@ export default async function CatalogPage() {
   ]);
 
   return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="font-serif text-4xl">Catálogo</h1>
-        <p className="mt-2 text-ink/70">
-          Actualizado cada {CATALOG_REVALIDATE_SECONDS} segundos (ISR).
+    <div className="flex flex-col">
+      <div className="bg-surface px-6 py-14 text-center">
+        <h1 className="text-headline">Catálogo</h1>
+        <p className="text-body mx-auto mt-3 max-w-md">
+          Actualizado cada {CATALOG_REVALIDATE_SECONDS} segundos.
         </p>
       </div>
-      <CatalogExplorer products={products} categories={categories} />
+      <div className="mx-auto w-full max-w-6xl px-6 py-10">
+        <CatalogExplorer products={products} categories={categories} />
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { motion } from "motion/react";
 import { ApiError } from "@/lib/api/client";
 import { browserApi } from "@/lib/api/browser";
 import type { Order } from "@/lib/api/types";
@@ -31,8 +32,8 @@ export function CheckoutView() {
 
   if (unauthorized) {
     return (
-      <p>
-        <Link href="/login?next=/checkout" className="underline">
+      <p className="text-body">
+        <Link href="/login?next=/checkout" className="text-accent hover:underline">
           Inicia sesión
         </Link>{" "}
         para continuar.
@@ -69,11 +70,11 @@ export function CheckoutView() {
 
   if (order) {
     return (
-      <div className="flex flex-col gap-4 rounded-2xl border border-ink/10 bg-white p-6">
-        <p>
-          Pedido <span className="font-mono text-sm">{order.id}</span>
+      <div className="flex flex-col gap-4 rounded-3xl bg-surface p-6">
+        <p className="text-sm text-muted">
+          Pedido <span className="font-mono">{order.id}</span>
         </p>
-        <p>
+        <p className="text-[15px]">
           Estado: <strong>{order.status}</strong> · {formatMoney(order.total)}
         </p>
         {order.status === "PENDIENTE" ? (
@@ -90,20 +91,22 @@ export function CheckoutView() {
                 value={token}
                 onChange={(event) => setToken(event.target.value)}
                 required
-                className="rounded-xl border border-ink/15 px-3 py-2 font-mono text-sm"
+                className="rounded-xl border border-line bg-background px-3 py-2 font-mono text-sm outline-none focus:ring-2 focus:ring-accent/40"
               />
             </label>
-            {error ? <p className="text-sm text-rust">{error}</p> : null}
-            <button
+            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            <motion.button
               type="submit"
               disabled={pending}
-              className="rounded-full bg-ink px-5 py-3 text-sm font-medium text-cream disabled:opacity-50"
+              whileTap={{ scale: 0.97 }}
+              transition={{ type: "spring", bounce: 0, duration: 0.3 }}
+              className="btn-pill py-3"
             >
               {pending ? "Cobrando…" : "Confirmar pago"}
-            </button>
+            </motion.button>
           </form>
         ) : (
-          <Link href="/pedidos" className="underline">
+          <Link href="/pedidos" className="text-accent hover:underline">
             Ver mis pedidos
           </Link>
         )}
@@ -113,15 +116,17 @@ export function CheckoutView() {
 
   return (
     <div className="flex flex-col gap-4">
-      {error ? <p className="text-rust">{error}</p> : null}
-      <button
+      {error ? <p className="text-red-600">{error}</p> : null}
+      <motion.button
         type="button"
         onClick={() => void placeOrder()}
         disabled={pending}
-        className="rounded-full bg-ink px-5 py-3 text-sm font-medium text-cream disabled:opacity-50"
+        whileTap={{ scale: 0.97 }}
+        transition={{ type: "spring", bounce: 0, duration: 0.3 }}
+        className="btn-pill py-3"
       >
         {pending ? "Creando pedido…" : "Confirmar pedido"}
-      </button>
+      </motion.button>
     </div>
   );
 }

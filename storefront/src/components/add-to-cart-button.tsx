@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { motion } from "motion/react";
 import { ApiError } from "@/lib/api/client";
 import { browserApi } from "@/lib/api/browser";
 
@@ -35,17 +36,17 @@ export function AddToCartButton({
 
   return (
     <div className="flex flex-col gap-2">
-      <button
+      <motion.button
         type="button"
         onClick={() => void add()}
         disabled={disabled || pending}
-        className="rounded-full bg-ink px-5 py-3 text-sm font-medium text-cream transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-50"
+        whileTap={{ scale: 0.96 }}
+        transition={{ type: "spring", bounce: 0, duration: 0.3 }}
+        className="btn-pill w-full py-3"
       >
         {pending ? "Agregando…" : "Agregar al carrito"}
-      </button>
-      {message ? (
-        <p className="text-sm text-ink/70">{message}</p>
-      ) : null}
+      </motion.button>
+      {message ? <p className="text-sm text-muted">{message}</p> : null}
     </div>
   );
 }
