@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  trazabilidad:
+    name: Validar trazabilidad task -> spec/plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar que las tasks referencian specs y plans existentes
+        run: |
+          for f in tasks/backlog/*.md tasks/in-progress/*.md tasks/done/*.md; do
+            [ -f "$f" ] || continue
+            spec=$(grep '^spec_ref:' "$f" | cut -d' ' -f2)
+            plan=$(grep '^plan_ref:' "$f" | cut -d' ' -f2 | cut -d'#' -f1)
+            [ -z "$spec" ] || [ -f "$spec" ] || { echo "❌ $f referencia spec inexistente: $spec"; exit 1; }
+            [ -z "$plan" ] || [ -f "$plan" ] || { echo "❌ $f referencia plan inexistente: $plan"; exit 1; }
+          done
+
+  backend:
+    name: Backend (NestJS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  storefront:
+    name: Storefront (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: storefront
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: storefront/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  admin:
+    name: Admin (Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+      - run: npm run build

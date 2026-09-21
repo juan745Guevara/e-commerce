@@ -170,7 +170,13 @@ storefront/   tienda Next.js
 admin/        panel Vite
 deploy/       nginx + Let's Encrypt
 docs/         notas de diseño (SOLID)
+specs/        reglas de negocio vigentes (spec-driven)
+plans/        arquitectura, base de datos y decisiones técnicas (ADRs)
+tasks/        trabajo pendiente/en curso/hecho, trazado a specs/plans
+.claude/      agentes y skills técnicas para desarrollo asistido
 ```
+
+Flujo de trabajo con agentes y specs: ver [CLAUDE.md](CLAUDE.md).
 
 ## Problemas frecuentes
 

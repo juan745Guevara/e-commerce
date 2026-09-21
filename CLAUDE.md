@@ -103,3 +103,19 @@ The storefront never lets the browser talk to the backend directly for anything 
 ## Admin architecture
 
 SPA with `src/pages` (Login, Productos, Pedidos), `src/components` (Layout, `ProtectedRoute`), `src/auth` (`AuthContext`), `src/lib` (HTTP client, session storage, Socket.IO client, types). Session (`admin.accessToken`, `admin.user`) lives in `sessionStorage` and is cleared on token expiry, non-admin role, or a 401 from the API. Any unmatched route redirects to `/`.
+
+
+## Flujo de trabajo con agentes (Spec-Driven Development)
+
+Además de la orientación de código de arriba, el proyecto usa agentes especializados (`.claude/agents/`) y un flujo spec-driven:
+
+1. Toda funcionalidad nace en `specs/` — nunca se salta este paso. Las specs actuales (`00-constitution.md`, `design-system.md`, `security.md`, `glossary.md`, `auth.md`, `catalogo.md`, `carrito.md`, `pedidos-checkout.md`, `pagos.md`) documentan las reglas de negocio que el código YA implementa, no un ideal aspiracional.
+2. `architect` traduce specs aprobadas en `plans/` (con ADR en `plans/decisions/` si hay una decisión técnica relevante) y genera tasks en `tasks/backlog/`.
+3. `orchestrator` mueve la task a `tasks/in-progress/` y la delega al agente correspondiente (`backend`, `frontend-storefront`, `frontend-admin`, `devops`, `security`).
+4. Ninguna task se marca `done` (ni se mueve a `tasks/done/`) sin que `qa` la haya validado contra su spec y contra `specs/00-constitution.md`.
+
+Ver `tasks/backlog/` para los gaps ya identificados (dirección de envío, whitelist de CORS, paginación del catálogo, rate limiting, tests unitarios) y `tasks/done/task-000-quitar-whatsapp-baileys.md` como ejemplo de una task ya completada, con su spec/plan de referencia.
+
+### Antes de tocar código
+
+Lee siempre `spec_ref` y `plan_ref` de la task asignada. No implementes nada sin respaldo en una spec.
