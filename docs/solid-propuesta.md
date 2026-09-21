@@ -1,373 +1,40 @@
 # Propuesta SOLID — Atelier
 
-Para el martes. Idea simple:
+Diez ejemplos, **dos por letra**. En cada uno:
 
-- **Mal** = cómo se vería si no usáramos SOLID (ejemplo inventado).
-- **Bien** = lo que **ya tiene el proyecto**. Esa es la solución. Los comentarios dicen para qué sirve cada parte.
+- **Mal** = cómo se vería si no usáramos esa letra (inventado).
+- **Bien** = lo que **ya tiene el proyecto**.
 
-Regla corta:
+| Letra | Principio | En una frase |
+| --- | --- | --- |
+| **S** | SRP | Una clase, un trabajo. |
+| **O** | OCP | Abierto a extensión, cerrado a modificación. |
+| **L** | LSP | Sustituyes la implementación y el caller no se rompe. |
+| **I** | ISP | Interfaces chicas: el cliente no arrastra métodos que no usa. |
+| **D** | DIP | Dependes de una interfaz, no de Culqi / Prisma. |
 
-| Criterio | En una frase |
-| --- | --- |
-| **SRP** | Una clase, un trabajo. |
-| **DIP** | Dependes de una interfaz, no de Culqi / Prisma. |
-| **Alta cohesión** | Lo que va junto, vive junto. |
-| **Bajo acoplamiento** | Si cambias el proveedor, el resto no se entera. |
+| # | Letra | Ejemplo |
+| --- | --- | --- |
+| 1 | **S** | Controller de pedidos vs service |
+| 2 | **S** | Página del carrito vs `CartView` |
+| 3 | **O** | Factory de pasarelas |
+| 4 | **O** | Listeners cuando cambia el pedido |
+| 5 | **L** | Culqi ↔ Mercado Pago |
+| 6 | **L** | Cloudinary ↔ otra nube de imágenes |
+| 7 | **I** | Puertos de un solo método |
+| 8 | **I** | Un repositorio por módulo |
+| 9 | **D** | Cobrar sin conocer Culqi |
+| 10 | **D** | Login sin conocer Prisma |
 
 ---
 
-## 1. Cobrar un pedido
+## 1. Controller de pedidos — **S**
 
-**Para qué sirve.** El cliente paga un pedido que está `PENDIENTE`. El dinero lo cobra Culqi o Mercado Pago, según `.env`.
+**Para qué sirve.** Recibe HTTP y responde JSON. No calcula stock ni crea filas.
 
 ### Mal (inventado)
 
-El cobro habla directo con Culqi. Si mañana usas Mercado Pago, reescribes toda la clase.
-
-```ts
-class PaymentService {
-  async charge(order, token) {
-    // URL, headers y body de UNA sola empresa: Culqi
-    const res = await fetch('https://api.culqi.com/v2/charges', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer sk_test_...' },
-      body: JSON.stringify({ amount: order.total, source_id: token }),
-    });
-    return res.json();
-  }
-}
-```
-
-### Bien (el proyecto)
-
-`PaymentService` no conoce Culqi. Solo llama a `IPaymentGateway`. Culqi y Mercado Pago son dos clases que implementan esa interfaz. Se elige con `PAYMENT_PROVIDER`.
-
-```ts
-// backend/src/pagos/domain/interfaces/payment-gateway.interface.ts
-
-// Contrato: "cualquier pasarela tiene que saber cobrar".
-// No dice CÓMO (ni HTTP, ni API keys). Eso es DIP.
-export const PAYMENT_GATEWAY = 'IPaymentGateway'; // token: Nest inyecta la clase concreta
-
-export interface IPaymentGateway {
-  // amount  = total del pedido
-  // token   = tarjeta tokenizada que manda el cliente
-  // orderId = para que la pasarela sepa qué pedido está cobrando
-  charge(amount: number, token: string, orderId: string): Promise<PaymentResult>;
-}
-```
-
-```ts
-// backend/src/pagos/application/services/payment.service.ts
-
-constructor(
-  // Nest busca quién implementa PAYMENT_GATEWAY (Culqi o Mercado Pago)
-  // y lo mete aquí. PaymentService no importa esas clases.
-  @Inject(PAYMENT_GATEWAY)
-  private readonly gateway: IPaymentGateway,
-) {}
-
-async charge(requester, dto) {
-  // dto.token = el token de la tarjeta; dto.orderId = qué pedido pagar
-  const order = await this.orders.findById(dto.orderId);
-
-  // La pasarela cobra. Da igual si por detrás es Culqi o Mercado Pago:
-  // las dos tienen .charge() porque implementan IPaymentGateway.
-  const result = await this.gateway.charge(
-    order.total,   // cuánto cobrar
-    dto.token,     // con qué tarjeta
-    order.id,      // de qué pedido
-  );
-
-  if (!result.succeeded) {
-    throw new BadRequestException('El pago no pudo confirmarse');
-  }
-  // ...marcar el pedido como PAGADO
-}
-```
-
-**SOLID:** DIP + bajo acoplamiento. El caso de uso no cambia si cambia la pasarela.
-
----
-
-## 2. Quitar un canal entero sin romper nada (DIP en la práctica)
-
-**Para qué sirve.** El proyecto tuvo, durante varias semanas, un aviso por WhatsApp (Baileys) cuando el pedido quedaba `PAGADO` o `ENVIADO`. Se quitó: dependía de escanear un QR y mantener una sesión de WhatsApp viva, algo poco práctico para una demo. Esto de aquí no es un ejemplo inventado — es lo que de verdad pasó, y es la prueba más clara de DIP de todo el proyecto.
-
-### Cómo estaba armado (antes)
-
-El service de pedidos **nunca** habló con Baileys directo. Hablaba con un contrato:
-
-```ts
-// backend/src/notificaciones/domain/interfaces/notifier.interface.ts (ya no existe)
-
-// Contrato: "avisa a alguien". No dice si es WhatsApp, email o SMS.
-export const NOTIFIER = 'INotifier';
-
-export interface INotifier {
-  sendMessage(to: string, message: string): Promise<void>;
-}
-```
-
-```ts
-// backend/src/notificaciones/application/services/notification.service.ts (ya no existe)
-
-constructor(
-  @Inject(NOTIFIER)
-  private readonly notifier: INotifier, // en ese momento era WhatsAppBaileysNotifier
-  @Inject(USER_REPOSITORY)
-  private readonly users: IUserRepository,
-) {}
-
-// Se disparaba SOLO cuando pedidos emitía "order.status.changed"
-@OnEvent(ORDER_STATUS_CHANGED)
-async onOrderStatusChanged(event: OrderStatusChangedEvent) {
-  if (event.status !== 'PAGADO' && event.status !== 'ENVIADO') return;
-  const user = await this.users.findById(event.userId);
-  if (!user?.phone) return;
-  await this.notifier.sendMessage(user.phone, this.buildMessage(event));
-}
-```
-
-### Qué pasó al quitarlo
-
-Para sacar WhatsApp del proyecto, esto fue **todo** lo que hubo que tocar:
-
-1. Borrar la carpeta `backend/src/notificaciones/` (el service, la interfaz y `WhatsAppBaileysNotifier`).
-2. Borrar una línea en `app.module.ts` (`NotificacionesModule`).
-
-`OrderService`, `OrderGateway`, el checkout, el gateway de Socket.IO — **nada de eso se tocó**, porque ninguno de ellos conocía `INotifier` ni sabía que WhatsApp existía. Solo hablaban con el evento `order.status.changed` (ver ejemplo 7).
-
-**SOLID:** DIP + bajo acoplamiento. Si mañana se quiere un `EmailNotifier`, es una clase nueva que implementa `INotifier` y un `provide` en un módulo — nada más se entera. Y si se quiere quitar, como pasó acá, tampoco.
-
----
-
-## 3. Subir foto del producto
-
-**Para qué sirve.** El admin sube una imagen del producto. Se guarda en la nube y la URL queda en el producto.
-
-### Mal (inventado)
-
-El catálogo habla con Cloudinary. Cambiar a S3 = reescribir `ProductService`.
-
-```ts
-class ProductService {
-  async addImage(id, file) {
-    const up = await cloudinary.uploader.upload_stream(file); // SDK concreto
-    await prisma.product.update({
-      where: { id },
-      data: { images: { push: up.secure_url } },
-    });
-  }
-}
-```
-
-### Bien (el proyecto)
-
-`ProductService` pide “súbeme esto y dame la URL” a `IImageStorage`. Cloudinary es solo quien implementa `upload`.
-
-```ts
-// backend/src/catalogo/domain/interfaces/image-storage.interface.ts
-
-export const IMAGE_STORAGE = 'IImageStorage';
-
-export type ImageUpload = {
-  buffer: Buffer;       // bytes del archivo
-  mimetype: string;     // ej. "image/jpeg"
-  originalname: string; // nombre que mandó el admin
-};
-
-export interface IImageStorage {
-  // Recibe el archivo y devuelve la URL pública (https://res.cloudinary.com/...)
-  upload(file: ImageUpload): Promise<string>;
-}
-```
-
-```ts
-// backend/src/catalogo/application/services/product.service.ts
-
-async addImage(id: string, file: ImageUpload) {
-  const product = await this.findById(id); // el producto tiene que existir
-
-  // Validación de negocio: tiene que ser una imagen con contenido
-  if (!file?.buffer?.length) {
-    throw new BadRequestException('Debes enviar un archivo de imagen');
-  }
-  if (!file.mimetype.startsWith('image/')) {
-    throw new BadRequestException('El archivo debe ser una imagen');
-  }
-
-  // this.images es IImageStorage (hoy CloudinaryService).
-  // ProductService no importa cloudinary ni prisma.
-  const url = await this.images.upload(file);
-
-  // Se agrega la URL nueva a las que ya tenía el producto
-  return this.products.update(id, {
-    images: [...product.images, url],
-  });
-}
-```
-
-**SOLID:** DIP + bajo acoplamiento. El catálogo no sabe qué nube guarda la foto.
-
----
-
-## 4. Checkout (carrito → pedido)
-
-**Para qué sirve.** Al comprar: se baja el stock, se crea el pedido y se vacía el carrito. Si algo falla, no debe quedar a medias (pedido creado y stock ya descontado).
-
-### Mal (inventado)
-
-El service de pedidos usa Prisma a pelo. Si cambias de base de datos, se rompe el checkout.
-
-```ts
-class OrderService {
-  async checkout(userId) {
-    await prisma.$transaction(async (tx) => {
-      await tx.product.update({ where: { id }, data: { stock: { decrement: 1 } } });
-      await tx.order.create({ data: { userId } });
-      await tx.cartItem.deleteMany({ where: { cartId } });
-    });
-  }
-}
-```
-
-### Bien (el proyecto)
-
-`OrderService` no importa Prisma. Pide “corre esto junto” a `ITransactionManager` y habla con repositorios (interfaces).
-
-```ts
-// backend/src/shared/domain/interfaces/transaction-manager.interface.ts
-
-export const TRANSACTION_MANAGER = 'ITransactionManager';
-
-export interface ITransactionManager {
-  // run = "ejecuta este trabajo de forma atómica".
-  // Si algo adentro falla, se revierte TODO.
-  // tx es opaco: application no sabe que es un Prisma.TransactionClient.
-  run<T>(work: (tx: unknown) => Promise<T>): Promise<T>;
-}
-```
-
-```ts
-// backend/src/pedidos/application/services/order.service.ts
-
-async checkout(userId: string) {
-  const cart = await this.carts.findByUserId(userId);
-  if (!cart || cart.items.length === 0) {
-    throw new BadRequestException('El carrito está vacío');
-  }
-
-  // Todo lo de adentro va o no va: stock + pedido + vaciar carrito
-  return this.transactions.run(async (tx) => {
-    const items = [];
-
-    for (const cartItem of cart.items) {
-      // tx se pasa a cada repo para que usen LA MISMA transacción
-      const product = await this.products.findById(cartItem.productId, tx);
-
-      // Baja stock solo si alcanza. Si no, reserved = false y se aborta todo
-      const reserved = await this.products.decrementStock(
-        product.id,
-        cartItem.quantity,
-        tx,
-      );
-      if (!reserved) {
-        throw new BadRequestException(`Stock insuficiente para ${product.name}`);
-      }
-
-      items.push({
-        productId: product.id,
-        productName: product.name,
-        unitPrice: product.price,
-        quantity: cartItem.quantity,
-      });
-    }
-
-    const total = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-
-    const order = await this.orders.create({ userId, total, items }, tx);
-    await this.carts.clear(cart.id, tx); // carrito vacío solo si el pedido salió bien
-    return order;
-  });
-}
-```
-
-**SOLID:** DIP. Application no conoce Prisma. Infrastructure sí (`PrismaTransactionManager`).
-
----
-
-## 5. Agregar al carrito
-
-**Para qué sirve.** El cliente mete un producto a la bolsa. Hay que leer el producto (¿hay stock?) y guardar el ítem.
-
-### Mal (inventado)
-
-El carrito importa las clases Prisma del catálogo. Los módulos quedan pegados.
-
-```ts
-class CartService {
-  constructor(
-    private prismaCart: PrismaCartRepository,
-    private prismaProduct: PrismaProductRepository, // clase concreta de otro módulo
-  ) {}
-
-  async addItem(userId, productId) {
-    const product = await this.prismaProduct.findById(productId);
-    await this.prismaCart.upsertItem(...);
-  }
-}
-```
-
-### Bien (el proyecto)
-
-El carrito depende de **interfaces**. Prisma vive en `infrastructure` y se engancha con un token.
-
-```ts
-// backend/src/carrito/application/services/cart.service.ts
-
-constructor(
-  // CARrito: guardar / leer la bolsa del usuario
-  @Inject(CART_REPOSITORY)
-  private readonly carts: ICartRepository,
-
-  // Catálogo: solo para leer el producto y su stock.
-  // CatalogoModule EXPORTA el token PRODUCT_REPOSITORY;
-  // carrito no importa PrismaProductRepository.
-  @Inject(PRODUCT_REPOSITORY)
-  private readonly products: IProductRepository,
-) {}
-
-async addItem(userId: string, dto: AddCartItemDto) {
-  const cart = await this.getOrCreate(userId); // si no tiene bolsa, la crea
-
-  // requireProduct = findById + error si no existe
-  const product = await this.requireProduct(dto.productId);
-
-  // Si ya tenía ese producto, se SUMA la cantidad (no se duplica la fila)
-  const currentQty = cart.itemByProductId(product.id)?.quantity ?? 0;
-  const nextQty = currentQty + dto.quantity;
-
-  this.assertStock(product.stock, nextQty); // no dejar pedir más de lo que hay
-
-  // upsertItem = "pon esta cantidad de este producto en este carrito"
-  return toCartResponse(
-    await this.carts.upsertItem(cart.id, product.id, nextQty),
-  );
-}
-```
-
-**SOLID:** DIP + bajo acoplamiento entre `carrito` y `catalogo`.
-
----
-
-## 6. El controller de pedidos
-
-**Para qué sirve.** Recibe el HTTP (`POST /pedidos/checkout`, listar, cambiar estado) y responde JSON. No calcula stock ni crea filas.
-
-### Mal (inventado)
-
-El controller hace de todo: HTTP + Prisma + reglas. Una clase, muchos trabajos.
+El controller hace HTTP, Prisma y reglas. Una clase, muchos trabajos.
 
 ```ts
 @Controller('pedidos')
@@ -383,197 +50,346 @@ class PedidosController {
 
 ### Bien (el proyecto)
 
-El controller solo enruta. Pregunta “quién eres” y pasa el id al service.
+El controller solo enruta. El service aplica la regla.
 
 ```ts
 // backend/src/pedidos/presentation/pedidos.controller.ts
-
-@Controller('pedidos')           // todas las rutas empiezan con /pedidos
-@UseGuards(JwtAuthGuard)        // sin JWT válido → 401. Esto es HTTP, no negocio
+@Controller('pedidos')
+@UseGuards(JwtAuthGuard)
 export class PedidosController {
-  constructor(private readonly orders: OrderService) {} // la lógica vive allá
+  constructor(private readonly orders: OrderService) {}
 
   @Post('checkout')
   checkout(@CurrentUser() user: AuthenticatedUser) {
-    // @CurrentUser lee el usuario del token. El controller solo pasa el id.
-    return this.orders.checkout(user.id);
-  }
-
-  @Get()
-  listMine(@CurrentUser() user: AuthenticatedUser) {
-    return this.orders.listByUser(user.id); // "mis" pedidos
-  }
-
-  @Get('admin')
-  @UseGuards(RolesGuard)
-  @Roles('admin')                // extra: solo rol admin
-  listAll() {
-    return this.orders.listAll();
-  }
-
-  @Patch(':id/estado')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
-  changeStatus(
-    @Param('id') id: string,                 // id de la URL
-    @Body() dto: UpdateOrderStatusDto,       // { status: 'ENVIADO' } del body
-  ) {
-    return this.orders.changeStatus(id, dto.status);
+    return this.orders.checkout(user.id); // negocio vive en OrderService
   }
 }
 ```
 
-Igual en auth: `AuthController` solo llama a `authService.register(dto)` / `login(dto)`.
-
-**SOLID:** SRP. El controller cambia si cambia la ruta. El service cambia si cambia la regla de negocio.
+**S:** el controller cambia si cambia la ruta. El service cambia si cambia la regla.
 
 ---
 
-## 7. Avisar cuando cambia el estado (sin acoplar los canales)
+## 2. Página del carrito — **S**
 
-**Para qué sirve.** Al pasar un pedido a `PAGADO`, el admin lo ve en vivo por WebSocket. Pedidos no tiene que saber quién más está escuchando ese cambio.
+**Para qué sirve.** `/carrito` arma la pantalla. Otro componente carga y edita la bolsa.
 
 ### Mal (inventado)
 
-`OrderService` llama directo a cada canal. Cada canal nuevo = editar pedidos.
+La página hace fetch, 401, HTML y layout. Todo en un archivo.
 
-```ts
-class OrderService {
-  async changeStatus(id, next) {
-    const order = await this.orders.updateStatus(id, next);
-    await emailer.send(order.userId, 'Tu pedido cambió'); // canal 1
-    io.to('admins').emit('pedido', order);                // canal 2
-    return order;
-  }
+```tsx
+export default async function CartPage() {
+  const res = await fetch('http://localhost:3000/carrito');
+  const cart = await res.json();
+  return cart.items.map((i) => <button>Quitar</button>);
 }
 ```
 
 ### Bien (el proyecto)
 
-Pedidos solo **avisa** “el estado cambió”. Quien quiera reaccionar, se suscribe.
+La página es el marco. `CartView` pide el carrito, quita ítems y maneja el 401.
 
-```ts
-// backend/src/pedidos/domain/events/order-status-changed.event.ts
-
-// Nombre del evento (string). Todos escuchan ESTA misma constante.
-export const ORDER_STATUS_CHANGED = 'order.status.changed';
-
-export type OrderStatusChangedEvent = {
-  orderId: string;
-  userId: string;
-  status: OrderStatus; // PAGADO, ENVIADO, etc.
-};
-```
-
-```ts
-// backend/src/pedidos/application/services/order.service.ts  (al final de changeStatus)
-
-// emit = "pasó esto". No espera respuesta. No importa quién escuche.
-this.events.emit(ORDER_STATUS_CHANGED, {
-  orderId: updated.id,
-  userId: updated.userId,
-  status: updated.status,
-});
-```
-
-```ts
-// backend/src/pedidos/presentation/order.gateway.ts
-@OnEvent(ORDER_STATUS_CHANGED) // "cuando cambie un pedido, avísame"
-onOrderStatusChanged(event) {
-  // manda el cambio a la sala "admins" por Socket.IO
+```tsx
+// storefront/src/app/carrito/page.tsx
+export default function CartPage() {
+  return (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-14">
+      <h1 className="text-headline text-[2rem]">Bolsa</h1>
+      <CartView />
+    </div>
+  );
 }
 ```
 
-Hoy `OrderGateway` es el único suscrito. Antes también escuchaba un `NotificationService` que avisaba por WhatsApp (ejemplo 2) — se pudo borrar sin tocar esta parte, porque `OrderService` nunca supo que existía.
+Lo mismo en `/checkout` (`CheckoutView`), `/pedidos` (`OrdersView`) y `/login` (`LoginForm`).
 
-**SOLID:** SRP + bajo acoplamiento. Pedidos no importa quién escucha, ni cuántos escuchan.
+**S:** si cambia el layout, no tocas el fetch. Si cambia el fetch, no tocas la página.
 
 ---
 
-## 8. Qué estados puede tener un pedido
+## 3. Factory de pasarelas — **O**
 
-**Para qué sirve.** Un pedido no puede saltar de `PENDIENTE` a `ENTREGADO`. Las transiciones válidas viven en un solo lugar para que backend y admin no se contradigan.
+**Para qué sirve.** Hoy hay Culqi y Mercado Pago. Una pasarela nueva no reescribe el cobro.
 
 ### Mal (inventado)
 
-Los `if` están en el controller, en el admin y en el service. Uno se desactualiza y el otro no.
+Cada proveedor nuevo abre `PaymentService` y le mete otro `if`.
 
 ```ts
-// en el controller
-if (actual === 'PENDIENTE' && (nuevo === 'PAGADO' || nuevo === 'CANCELADO')) { ok }
-
-// en el admin, otro if distinto
-if (status === 'PAGADO') mostrarBotonEnviado();
+async charge(order, token) {
+  if (provider === 'culqi') { /* HTTP Culqi */ }
+  else if (provider === 'mercadopago') { /* HTTP MP */ }
+  else if (provider === 'stripe') { /* otra vez aquí */ }
+}
 ```
 
 ### Bien (el proyecto)
 
-El mapa de transiciones es la regla. El service solo pregunta. El admin copia el mismo mapa para los botones.
+`PaymentService` solo llama `gateway.charge(...)`. Quién es el gateway lo decide el factory.
 
 ```ts
-// backend/src/pedidos/domain/entities/order-status.ts
+// backend/src/pagos/pagos.module.ts
+useFactory: (config, http, payers): IPaymentGateway => {
+  const provider = (config.get('PAYMENT_PROVIDER') ?? 'culqi').toLowerCase();
+  if (provider === 'mercadopago') {
+    return new MercadoPagoPaymentService(http, config, payers);
+  }
+  return new CulqiPaymentService(http, config, payers);
+  // Stripe = clase nueva + una rama aquí. payment.service.ts no se toca.
+},
+```
 
-// Todos los estados posibles del pedido
-export const ORDER_STATUSES = [
-  'PENDIENTE',
-  'PAGADO',
-  'ENVIADO',
-  'ENTREGADO',
-  'CANCELADO',
-] as const;
+**O:** abierto a nuevas pasarelas; cerrado el caso de uso de cobro.
 
-// De cada estado, a cuáles se PUEDE pasar.
-// Array vacío = estado final (no hay siguiente).
-export const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  PENDIENTE: ['PAGADO', 'CANCELADO'], // o paga, o cancela
-  PAGADO: ['ENVIADO'],                // el admin lo manda
-  ENVIADO: ['ENTREGADO'],             // el cliente lo recibe
-  ENTREGADO: [],
-  CANCELADO: [],
-};
+---
 
-// Pregunta de dominio: ¿este salto es legal?
-export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
-  return ORDER_TRANSITIONS[from].includes(to);
+## 4. Listeners cuando cambia el pedido — **O**
+
+**Para qué sirve.** Al cambiar el estado, el admin recibe el evento por Socket.IO. Email o métricas se suman sin abrir `OrderService`.
+
+### Mal (inventado)
+
+`changeStatus` conoce todos los canales. Cada canal nuevo edita el service.
+
+```ts
+async changeStatus(id, status) {
+  await this.orders.updateStatus(id, status);
+  await this.socket.emitToAdmins(...);
+  await this.email.send(...); // otra vez aquí
 }
 ```
+
+### Bien (el proyecto)
+
+`OrderService` solo emite. Quien escuche se suscribe con `@OnEvent`.
 
 ```ts
 // backend/src/pedidos/application/services/order.service.ts
+this.events.emit(ORDER_STATUS_CHANGED, payload);
 
-async changeStatus(id: string, nextStatus: OrderStatus) {
-  const order = await this.requireOrder(id);
-
-  // El service no tiene if/else de cada par de estados:
-  // le pregunta al dominio.
-  if (!canTransition(order.status, nextStatus)) {
-    throw new BadRequestException(
-      `No se puede pasar de ${order.status} a ${nextStatus}`,
-    );
-  }
-
-  // Extra: si cancela un PENDIENTE, hay que devolver el stock
-  const shouldRestoreStock =
-    order.status === 'PENDIENTE' && nextStatus === 'CANCELADO';
-
-  // ...transacción + emit del evento (ejemplo 7)
+// backend/src/pedidos/presentation/order.gateway.ts
+@OnEvent(ORDER_STATUS_CHANGED)
+broadcastStatusChanged(payload: OrderStatusChangedEvent): void {
+  this.server.to('admins').emit(ORDER_STATUS_CHANGED, payload);
 }
 ```
 
-```ts
-// admin/src/lib/orders.ts
-// El panel usa el MISMO mapa para habilitar botones
-// (PENDIENTE → mostrar "Marcar pagado" y "Cancelar")
-export const ORDER_TRANSITIONS = { /* igual que el backend */ };
-```
+Las transiciones válidas también se extienden en un solo mapa (`ORDER_TRANSITIONS` en `order-status.ts`), no con `if` nuevos dentro del service.
 
-**SOLID:** alta cohesión. La regla de estados vive en un archivo, no repartida en `if`.
+**O:** extiendes listeners o transiciones; el flujo de `changeStatus` no se reescribe.
 
 ---
 
-## 9. Login y registro
+## 5. Culqi y Mercado Pago son intercambiables — **L**
 
-**Para qué sirve.** Crear usuario y entrar. Hay que buscar el email y guardar el usuario. Auth no escribe SQL.
+**Para qué sirve.** Las dos clases cumplen el mismo contrato. Nest inyecta una u otra; el cobro no pregunta “¿eres Culqi?”.
+
+### Mal (inventado)
+
+El caller hace `instanceof` y trata distinto a cada pasarela. Sustituir una por otra rompe el código.
+
+```ts
+if (gateway instanceof CulqiPaymentService) {
+  await gateway.chargeCulqi(...);
+} else {
+  await gateway.chargeMercadoPago(...);
+}
+```
+
+### Bien (el proyecto)
+
+Misma firma, mismo `PaymentResult`. Cualquiera puede reemplazar a la otra detrás de `PAYMENT_GATEWAY`.
+
+```ts
+// backend/src/pagos/domain/interfaces/payment-gateway.interface.ts
+export interface IPaymentGateway {
+  charge(amount: number, token: string, orderId: string): Promise<PaymentResult>;
+}
+
+export class CulqiPaymentService implements IPaymentGateway { /* charge() */ }
+export class MercadoPagoPaymentService implements IPaymentGateway { /* charge() */ }
+```
+
+El caller solo mira `result.succeeded`. No distingue la clase concreta.
+
+**L:** sustituyes Culqi por Mercado Pago y el caso de uso sigue válido.
+
+---
+
+## 6. Cloudinary se puede sustituir — **L**
+
+**Para qué sirve.** Subir la foto del producto. El catálogo pide una URL; no sabe que detrás está Cloudinary.
+
+### Mal (inventado)
+
+El service llama a la API de Cloudinary. Cambiar de nube obliga a reescribir el caso de uso, porque la firma y el resultado no son los mismos.
+
+```ts
+class ProductService {
+  async addImage(id, file) {
+    const url = await cloudinary.uploader.upload(file); // atado a un proveedor
+  }
+}
+```
+
+### Bien (el proyecto)
+
+`CloudinaryService` implementa `IImageStorage.upload` y devuelve un `string` (la URL). Otra nube haría lo mismo: misma firma, mismo tipo de retorno.
+
+```ts
+// backend/src/catalogo/domain/interfaces/image-storage.interface.ts
+export interface IImageStorage {
+  upload(file: ImageUpload): Promise<string>;
+}
+
+// backend/src/catalogo/infrastructure/cloudinary/cloudinary.service.ts
+export class CloudinaryService implements IImageStorage {
+  async upload(file: ImageUpload): Promise<string> {
+    // sube y resuelve result.secure_url
+  }
+}
+```
+
+`ProductService` solo hace `this.images.upload(file)`. Un `S3ImageStorage` con el mismo `upload(): Promise<string>` lo reemplaza sin tocar el catálogo.
+
+**L:** la implementación se sustituye; el caller sigue llamando `upload` y recibe una URL.
+
+---
+
+## 7. Contratos de un solo método — **I**
+
+**Para qué sirve.** Cobrar no arrastra “subir imagen”. Subir imagen no arrastra “abrir transacción”.
+
+### Mal (inventado)
+
+Una interfaz gorda. Quien solo quiere subir una foto depende de `charge`, `refund` y `sendEmail`.
+
+```ts
+interface IInfra {
+  charge(...): Promise<...>;
+  refund(...): Promise<...>;
+  upload(...): Promise<...>;
+  runTransaction(...): Promise<...>;
+}
+```
+
+### Bien (el proyecto)
+
+Tres puertos, cada uno con un método:
+
+```ts
+// pagos
+export interface IPaymentGateway {
+  charge(amount: number, token: string, orderId: string): Promise<PaymentResult>;
+}
+
+// catálogo
+export interface IImageStorage {
+  upload(file: ImageUpload): Promise<string>;
+}
+
+// shared
+export interface ITransactionManager {
+  run<T>(work: (tx: unknown) => Promise<T>): Promise<T>;
+}
+```
+
+`PaymentService` inyecta `IPaymentGateway`. `ProductService` inyecta `IImageStorage`. Ninguno ve los métodos del otro.
+
+**I:** el cliente depende solo de lo que usa.
+
+---
+
+## 8. Un repositorio por módulo — **I**
+
+**Para qué sirve.** Pedidos no necesita `upsertItem` del carrito. Carrito no necesita `updateStatus` del pedido.
+
+### Mal (inventado)
+
+Un solo repo con todo. Quien pide el carrito arrastra stock, órdenes y usuarios.
+
+```ts
+interface IRepository {
+  findUser(...);
+  upsertCartItem(...);
+  createOrder(...);
+  updateOrderStatus(...);
+  decrementStock(...);
+}
+```
+
+### Bien (el proyecto)
+
+Interfaces y tokens por módulo:
+
+```ts
+// backend/src/carrito/domain/interfaces/cart-repository.interface.ts
+export interface ICartRepository {
+  findByUserId(userId: string): Promise<Cart | null>;
+  upsertItem(cartId: string, productId: string, quantity: number): Promise<Cart>;
+  removeItem(cartId: string, productId: string): Promise<Cart>;
+  clear(cartId: string, tx?: unknown): Promise<void>;
+}
+
+// backend/src/pedidos/domain/interfaces/order-repository.interface.ts
+export interface IOrderRepository {
+  findById(id: string): Promise<Order | null>;
+  findByUserId(userId: string): Promise<Order[]>;
+  create(data: CreateOrderData, tx?: unknown): Promise<Order>;
+  updateStatus(id: string, status: OrderStatus, tx?: unknown): Promise<Order>;
+}
+```
+
+**I:** cada módulo ve su contrato, no la base de datos entera.
+
+---
+
+## 9. Cobrar sin conocer Culqi — **D**
+
+**Para qué sirve.** El cliente paga un pedido `PENDIENTE`. El dinero lo cobra Culqi o Mercado Pago, según `.env`.
+
+### Mal (inventado)
+
+El cobro habla directo con Culqi. Cambiar de pasarela reescribe la clase.
+
+```ts
+class PaymentService {
+  async charge(order, token) {
+    const res = await fetch('https://api.culqi.com/v2/charges', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer sk_test_...' },
+      body: JSON.stringify({ amount: order.total, source_id: token }),
+    });
+    return res.json();
+  }
+}
+```
+
+### Bien (el proyecto)
+
+`PaymentService` no importa Culqi. Llama a `IPaymentGateway`. Nest inyecta la clase concreta.
+
+```ts
+// backend/src/pagos/application/services/payment.service.ts
+constructor(
+  @Inject(PAYMENT_GATEWAY)
+  private readonly gateway: IPaymentGateway,
+) {}
+
+const result = await this.gateway.charge(order.total, dto.token, order.id);
+if (!result.succeeded) {
+  throw new BadRequestException('El pago no pudo confirmarse');
+}
+```
+
+**D:** el caso de uso depende del contrato, no de la URL ni de la API key.
+
+---
+
+## 10. Login sin conocer Prisma — **D**
+
+**Para qué sirve.** Registrar y entrar. Auth busca el email y guarda el usuario. No escribe SQL.
 
 ### Mal (inventado)
 
@@ -590,142 +406,30 @@ class AuthService {
 
 ### Bien (el proyecto)
 
-Auth pide usuarios a `IUserRepository`. Quien habla con PostgreSQL es `PrismaUserRepository`.
+Auth pide usuarios a `IUserRepository`. PostgreSQL está en `PrismaUserRepository`.
 
 ```ts
 // backend/src/auth/domain/interfaces/user-repository.interface.ts
-
-export const USER_REPOSITORY = 'IUserRepository';
-
 export interface IUserRepository {
-  findByEmail(email: string): Promise<User | null>; // ¿ya existe este email?
-  findById(id: string): Promise<User | null>;       // JWT → usuario (Passport)
-  create(data: CreateUserData): Promise<User>;      // registro
+  findByEmail(email: string): Promise<User | null>;
+  findById(id: string): Promise<User | null>;
+  create(data: CreateUserData): Promise<User>;
 }
-```
 
-```ts
 // backend/src/auth/application/services/auth.service.ts
-
 constructor(
   @Inject(USER_REPOSITORY)
   private readonly users: IUserRepository, // no PrismaService
 ) {}
-
-async register(dto: RegisterDto) {
-  const email = dto.email.toLowerCase().trim();
-
-  // Si findByEmail encuentra a alguien → 409, no se duplica
-  const existing = await this.users.findByEmail(email);
-  if (existing) throw new ConflictException('El email ya está registrado');
-
-  const passwordHash = await bcrypt.hash(dto.password, 10);
-
-  // create guarda hash, rol "cliente" y teléfono opcional
-  const user = await this.users.create({
-    email,
-    passwordHash,
-    role: 'cliente',
-    phone: dto.phone?.trim() || null,
-  });
-
-  return user.toPublic(); // sin passwordHash hacia afuera
-}
-
-async login(dto: LoginDto) {
-  const user = await this.users.findByEmail(dto.email.toLowerCase().trim());
-  if (!user) throw new UnauthorizedException('Credenciales inválidas');
-
-  const matches = await bcrypt.compare(dto.password, user.passwordHash);
-  if (!matches) throw new UnauthorizedException('Credenciales inválidas');
-
-  // El JWT lleva id, email y rol (el admin panel lo usa para dejar entrar)
-  const accessToken = await this.jwtService.signAsync({
-    sub: user.id,
-    email: user.email,
-    role: user.role,
-  });
-
-  return { accessToken, user: user.toPublic() };
-}
 ```
 
-**SOLID:** DIP. El login no depende de Prisma. El repo se puede mockear en tests.
+**D:** el login depende de la interfaz. El repo se puede mockear en tests.
 
 ---
 
-## 10. La página del carrito en la tienda
-
-**Para qué sirve.** Mostrar la bolsa al cliente. La ruta `/carrito` solo arma la pantalla; otro componente carga y edita los ítems.
-
-### Mal (inventado)
-
-La página hace el fetch, el 401, el HTML y el layout. Todo en un archivo.
-
-```tsx
-export default async function CartPage() {
-  const res = await fetch('http://localhost:3000/carrito');
-  const cart = await res.json();
-  return (
-    <div>
-      {cart.items.map((i) => (
-        <button onClick={() => fetch('/carrito/items/' + i.id, { method: 'DELETE' })}>
-          Quitar
-        </button>
-      ))}
-    </div>
-  );
-}
-```
-
-### Bien (el proyecto)
-
-La página es el marco (título + padding). `CartView` es “la bolsa”: pide el carrito, quita ítems, muestra vacío.
-
-```tsx
-// storefront/src/app/carrito/page.tsx
-// Archivo de RUTA de Next: /carrito
-// No llama a la API. No sabe si hay ítems. Solo pinta el cascarón.
-
-export default function CartPage() {
-  return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-14">
-      <h1 className="text-headline text-[2rem]">Bolsa</h1>
-
-      {/* CartView (client component) hace:
-          - browserApi.getCart()
-          - quitar / cambiar cantidad
-          - "inicia sesión" si responde 401 */}
-      <CartView />
-    </div>
-  );
-}
-```
-
-Lo mismo en las otras rutas de la tienda:
-
-| Ruta | Página (marco) | Componente (trabajo) |
-| --- | --- | --- |
-| `/carrito` | `CartPage` | `CartView` |
-| `/checkout` | `CheckoutPage` | `CheckoutView` |
-| `/pedidos` | `OrdersPage` | `OrdersView` |
-| `/login` | `LoginPage` | `LoginForm` |
-
-**SOLID:** SRP + cohesión. Si cambia el layout de `/carrito`, no tocas cómo se carga la bolsa. Si cambia el fetch, no tocas la página.
-
----
-
-## Cómo contarlo el martes (2 minutos por ejemplo)
+## Cómo contarlo (2 minutos por ejemplo)
 
 1. “Esto sirve para …”
-2. “Si no hubiera SOLID, quedaría así” → bloque **Mal**.
-3. “En Atelier ya está así” → bloque **Bien** (abrir el archivo y leer los comentarios).
-4. “Por eso es SRP / DIP / cohesión / bajo acoplamiento.”
-
-Los 3 más claros para el docente:
-
-1. **Pagos** (`IPaymentGateway`) — DIP.
-2. **Controller vs service** — SRP.
-3. **Evento de pedido** — bajo acoplamiento.
-
-No hace falta inventar otra arquitectura. El proyecto ya aplica SOLID en estas partes.
+2. “Si no hubiera esta letra, quedaría así” → **Mal**.
+3. “En Atelier ya está así” → **Bien**.
+4. Nombrar la letra: **S, O, L, I o D**.
