@@ -37,9 +37,6 @@ services:
       PAYMENT_CURRENCY: ${PAYMENT_CURRENCY}
       CULQI_SECRET_KEY: ${CULQI_SECRET_KEY}
       MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN}
-      WHATSAPP_SESSION_PATH: ${WHATSAPP_SESSION_PATH:-/data/wa-auth}
-    volumes:
-      - wa_auth:/data/wa-auth
     networks:
       - internal
     healthcheck:
@@ -159,6 +156,5 @@ networks:
 
 volumes:
   postgres_data:
-  wa_auth:
   certbot_www:
   certbot_certs:

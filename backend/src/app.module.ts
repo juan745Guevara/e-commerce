@@ -6,7 +6,6 @@ import { CatalogoModule } from './catalogo/catalogo.module.js';
 import { CarritoModule } from './carrito/carrito.module.js';
 import { PedidosModule } from './pedidos/pedidos.module.js';
 import { PagosModule } from './pagos/pagos.module.js';
-import { NotificacionesModule } from './notificaciones/notificaciones.module.js';
 import { AppController } from './app.controller.js';
 import { PrismaModule } from './shared/infrastructure/prisma/prisma.module.js';
 
@@ -23,7 +22,6 @@ import { PrismaModule } from './shared/infrastructure/prisma/prisma.module.js';
     CarritoModule,
     PedidosModule,
     PagosModule,
-    NotificacionesModule,
   ],
   controllers: [AppController],
 })

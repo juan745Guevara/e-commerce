@@ -57,7 +57,7 @@ export function RegisterForm() {
         />
       </label>
       <label className="flex flex-col gap-1.5 text-sm">
-        WhatsApp (opcional)
+        Teléfono (opcional)
         <input
           name="phone"
           type="tel"

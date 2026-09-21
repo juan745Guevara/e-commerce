@@ -10,7 +10,7 @@ Regla corta:
 | Criterio | En una frase |
 | --- | --- |
 | **SRP** | Una clase, un trabajo. |
-| **DIP** | Dependes de una interfaz, no de Culqi / Prisma / WhatsApp. |
+| **DIP** | Dependes de una interfaz, no de Culqi / Prisma. |
 | **Alta cohesión** | Lo que va junto, vive junto. |
 | **Bajo acoplamiento** | Si cambias el proveedor, el resto no se entera. |
 
@@ -90,69 +90,55 @@ async charge(requester, dto) {
 
 ---
 
-## 2. Avisar por WhatsApp
+## 2. Quitar un canal entero sin romper nada (DIP en la práctica)
 
-**Para qué sirve.** Cuando el pedido queda `PAGADO` o `ENVIADO`, se manda un mensaje al teléfono del cliente.
+**Para qué sirve.** El proyecto tuvo, durante varias semanas, un aviso por WhatsApp (Baileys) cuando el pedido quedaba `PAGADO` o `ENVIADO`. Se quitó: dependía de escanear un QR y mantener una sesión de WhatsApp viva, algo poco práctico para una demo. Esto de aquí no es un ejemplo inventado — es lo que de verdad pasó, y es la prueba más clara de DIP de todo el proyecto.
 
-### Mal (inventado)
+### Cómo estaba armado (antes)
 
-El aviso importa Baileys (WhatsApp) adentro. Si quieres email, tocas el service.
-
-```ts
-class NotificationService {
-  async avisar(pedido, user) {
-    const sock = makeWASocket({ auth: state }); // pegado a WhatsApp
-    await sock.sendMessage(user.phone + '@s.whatsapp.net', {
-      text: 'Tu pedido fue pagado',
-    });
-  }
-}
-```
-
-### Bien (el proyecto)
-
-El service solo dice “manda este texto a este número”. WhatsApp está atrás de `INotifier`.
+El service de pedidos **nunca** habló con Baileys directo. Hablaba con un contrato:
 
 ```ts
-// backend/src/notificaciones/domain/interfaces/notifier.interface.ts
+// backend/src/notificaciones/domain/interfaces/notifier.interface.ts (ya no existe)
 
 // Contrato: "avisa a alguien". No dice si es WhatsApp, email o SMS.
 export const NOTIFIER = 'INotifier';
 
 export interface INotifier {
   sendMessage(to: string, message: string): Promise<void>;
-  // to      = teléfono (o el destino que use el canal)
-  // message = texto listo para enviar
 }
 ```
 
 ```ts
-// backend/src/notificaciones/application/services/notification.service.ts
+// backend/src/notificaciones/application/services/notification.service.ts (ya no existe)
 
 constructor(
   @Inject(NOTIFIER)
-  private readonly notifier: INotifier, // hoy es WhatsAppBaileysNotifier
+  private readonly notifier: INotifier, // en ese momento era WhatsAppBaileysNotifier
   @Inject(USER_REPOSITORY)
-  private readonly users: IUserRepository, // para buscar el teléfono del cliente
+  private readonly users: IUserRepository,
 ) {}
 
-// Se dispara SOLO cuando pedidos emite "order.status.changed"
-// (el service de pedidos no llama a WhatsApp: ver ejemplo 7)
+// Se disparaba SOLO cuando pedidos emitía "order.status.changed"
 @OnEvent(ORDER_STATUS_CHANGED)
 async onOrderStatusChanged(event: OrderStatusChangedEvent) {
-  // Solo avisamos en estos dos estados; el resto se ignora
   if (event.status !== 'PAGADO' && event.status !== 'ENVIADO') return;
-
   const user = await this.users.findById(event.userId);
-  if (!user?.phone) return; // sin teléfono no hay a quién escribir
-
-  // buildMessage arma el texto según el estado (pagado vs enviado)
-  // sendMessage es de INotifier: no hay makeWASocket acá
+  if (!user?.phone) return;
   await this.notifier.sendMessage(user.phone, this.buildMessage(event));
 }
 ```
 
-**SOLID:** DIP. Mañana un `EmailNotifier` implementa la misma interfaz y este service no se toca.
+### Qué pasó al quitarlo
+
+Para sacar WhatsApp del proyecto, esto fue **todo** lo que hubo que tocar:
+
+1. Borrar la carpeta `backend/src/notificaciones/` (el service, la interfaz y `WhatsAppBaileysNotifier`).
+2. Borrar una línea en `app.module.ts` (`NotificacionesModule`).
+
+`OrderService`, `OrderGateway`, el checkout, el gateway de Socket.IO — **nada de eso se tocó**, porque ninguno de ellos conocía `INotifier` ni sabía que WhatsApp existía. Solo hablaban con el evento `order.status.changed` (ver ejemplo 7).
+
+**SOLID:** DIP + bajo acoplamiento. Si mañana se quiere un `EmailNotifier`, es una clase nueva que implementa `INotifier` y un `provide` en un módulo — nada más se entera. Y si se quiere quitar, como pasó acá, tampoco.
 
 ---
 
@@ -443,20 +429,20 @@ Igual en auth: `AuthController` solo llama a `authService.register(dto)` / `logi
 
 ---
 
-## 7. Avisar cuando cambia el estado (sin llamar a WhatsApp)
+## 7. Avisar cuando cambia el estado (sin acoplar los canales)
 
-**Para qué sirve.** Al pasar un pedido a `PAGADO`, el admin lo ve en vivo (WebSocket) y el cliente recibe WhatsApp. Pedidos no tiene que conocer esos canales.
+**Para qué sirve.** Al pasar un pedido a `PAGADO`, el admin lo ve en vivo por WebSocket. Pedidos no tiene que saber quién más está escuchando ese cambio.
 
 ### Mal (inventado)
 
-`OrderService` llama a WhatsApp y al socket. Cada canal nuevo = editar pedidos.
+`OrderService` llama directo a cada canal. Cada canal nuevo = editar pedidos.
 
 ```ts
 class OrderService {
   async changeStatus(id, next) {
     const order = await this.orders.updateStatus(id, next);
-    await whatsapp.send(order.userId, 'Tu pedido cambió');
-    io.to('admins').emit('pedido', order);
+    await emailer.send(order.userId, 'Tu pedido cambió'); // canal 1
+    io.to('admins').emit('pedido', order);                // canal 2
     return order;
   }
 }
@@ -491,20 +477,16 @@ this.events.emit(ORDER_STATUS_CHANGED, {
 ```
 
 ```ts
-// backend/src/notificaciones/application/services/notification.service.ts
-@OnEvent(ORDER_STATUS_CHANGED) // "cuando cambie un pedido, avísame"
-async onOrderStatusChanged(event) {
-  // busca teléfono y manda WhatsApp (vía INotifier)
-}
-
 // backend/src/pedidos/presentation/order.gateway.ts
-@OnEvent(ORDER_STATUS_CHANGED)
+@OnEvent(ORDER_STATUS_CHANGED) // "cuando cambie un pedido, avísame"
 onOrderStatusChanged(event) {
   // manda el cambio a la sala "admins" por Socket.IO
 }
 ```
 
-**SOLID:** SRP + bajo acoplamiento. Pedidos no importa WhatsApp ni el gateway.
+Hoy `OrderGateway` es el único suscrito. Antes también escuchaba un `NotificationService` que avisaba por WhatsApp (ejemplo 2) — se pudo borrar sin tocar esta parte, porque `OrderService` nunca supo que existía.
+
+**SOLID:** SRP + bajo acoplamiento. Pedidos no importa quién escucha, ni cuántos escuchan.
 
 ---
 

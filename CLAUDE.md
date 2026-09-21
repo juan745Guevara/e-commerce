@@ -12,7 +12,7 @@ Atelier — an e-commerce monorepo with three independent apps behind nginx:
 | Storefront | `storefront/` | Next.js 16 (App Router), React 19, Tailwind 4 | `3001` |
 | Admin | `admin/` | Vite 8, React 19, React Router 7, Socket.IO client | `5173` |
 
-The backend owns auth, catalog, cart, orders, payments, and WhatsApp notifications. The storefront and admin are pure clients — neither talks to Postgres or Cloudinary directly.
+The backend owns auth, catalog, cart, orders, and payments. The storefront and admin are pure clients — neither talks to Postgres or Cloudinary directly.
 
 ## Commands
 
@@ -72,19 +72,19 @@ Each feature module under `backend/src/<module>/` follows a fixed 4-layer layout
 <module>/
   domain/          entities, value objects, repository interfaces (+ injection tokens), domain events
   application/      services (use cases) + DTOs, orchestrate domain + infra via interfaces
-  infrastructure/   Prisma repository implementations, external SDKs (Cloudinary, Baileys, payment providers)
+  infrastructure/   Prisma repository implementations, external SDKs (Cloudinary, payment providers)
   presentation/     controllers, gateways
   <module>.module.ts
 ```
 
-Modules: `auth`, `catalogo`, `carrito`, `pedidos`, `pagos`, `notificaciones`, plus `shared` (Prisma service/module, JWT/roles guards, `@CurrentUser()` decorator, cross-cutting domain interfaces).
+Modules: `auth`, `catalogo`, `carrito`, `pedidos`, `pagos`, plus `shared` (Prisma service/module, JWT/roles guards, `@CurrentUser()` decorator, cross-cutting domain interfaces).
 
 Key conventions:
 
 - **Dependency inversion via string tokens.** `application` services depend on interfaces (`IOrderRepository`, `ICartRepository`, `IProductRepository`, `ITransactionManager`, ...), never on Prisma directly. Each interface file exports both the TS type and a token constant (e.g. `ORDER_REPOSITORY`); modules bind the token to the concrete `Prisma*Repository` in their `providers` array and `@Inject(TOKEN)` it into services. When adding a new cross-module dependency, follow this pattern instead of importing another module's repository class directly.
 - **Cross-module reads happen through exported repository tokens/services**, not direct DB access — e.g. `OrderService` injects `CART_REPOSITORY` and `PRODUCT_REPOSITORY` (exported by `CarritoModule`/`CatalogoModule`) rather than reaching into their Prisma models.
 - **Transactions are abstracted behind `ITransactionManager`** (`shared/domain/interfaces/transaction-manager.interface.ts`): `transactions.run(async (tx) => {...})` threads an opaque `tx` handle through repository calls that accept an optional `tx` param. Any multi-step write that must be atomic (e.g. `OrderService.checkout` decrementing stock + creating the order + clearing the cart; `changeStatus` reverting stock on cancellation) goes through this, so Prisma can roll back the whole operation on failure — this is what prevents concurrent checkouts from oversubscribing stock.
-- **Domain events** (e.g. `order.status.changed` from `pedidos/domain/events/order-status-changed.event.ts`) go through `EventEmitter2`. `OrderGateway` (Socket.IO) and the WhatsApp notifier both react to `order.status.changed`; order status transitions are validated by `canTransition()` in `pedidos/domain/entities/order-status.ts` (`PENDIENTE → PAGADO|CANCELADO`, `PAGADO → ENVIADO`, `ENVIADO → ENTREGADO`).
+- **Domain events** (e.g. `order.status.changed` from `pedidos/domain/events/order-status-changed.event.ts`) go through `EventEmitter2`. `OrderGateway` (Socket.IO) reacts to `order.status.changed` to broadcast live updates to admins; order status transitions are validated by `canTransition()` in `pedidos/domain/entities/order-status.ts` (`PENDIENTE → PAGADO|CANCELADO`, `PAGADO → ENVIADO`, `ENVIADO → ENTREGADO`).
 - **Auth**: JWT via Passport (`shared/infrastructure/guards/jwt-auth.guard.ts`, `roles.guard.ts` + `@Roles()`), roles are `cliente`/`admin`. The Socket.IO gateway authenticates the same JWT from the handshake (`auth.token`, `Authorization` header, or `token` query param) and only admits role `admin` into the `admins` room.
 - Prisma schema: `backend/prisma/schema.prisma` (`User`, `Category`, `Product`, `Cart`, `CartItem`, `Order`, `OrderItem`). Regenerate the client (`npx prisma generate`) after schema edits.
 - Module is ESM (`"type": "module"` in `package.json`) — internal imports use explicit `.js` extensions even though source is `.ts`.

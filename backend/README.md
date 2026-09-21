@@ -1,6 +1,6 @@
 # Backend — Atelier
 
-API NestJS 12 (ESM) de la tienda. Auth, catálogo, carrito, pedidos, pagos y notificaciones. Overview del monorepo: [README raíz](../README.md).
+API NestJS 12 (ESM) de la tienda. Auth, catálogo, carrito, pedidos y pagos. Overview del monorepo: [README raíz](../README.md).
 
 - Puerto: **3000** (`PORT`)
 - Health: `GET /health` → `{ "status": "ok" }`
@@ -14,7 +14,6 @@ API NestJS 12 (ESM) de la tienda. Auth, catálogo, carrito, pedidos, pagos y not
 | Prisma 6 + PostgreSQL | Persistencia |
 | Cloudinary | Imágenes de producto |
 | Culqi o Mercado Pago | Cobro (`PAYMENT_PROVIDER`) |
-| Baileys | WhatsApp (prototipo, no es la Cloud API oficial) |
 | Socket.IO | Pedidos en vivo para admins |
 | Vitest + Oxlint + Prettier | Test, lint, formato |
 
@@ -26,7 +25,7 @@ Cada feature vive en `src/<modulo>/` con cuatro capas:
 <modulo>/
   domain/           entidades, VOs, interfaces de repositorio + tokens, eventos
   application/      servicios (casos de uso) y DTOs
-  infrastructure/   Prisma, Cloudinary, Baileys, pasarelas
+  infrastructure/   Prisma, Cloudinary, pasarelas
   presentation/     controllers, gateways
   <modulo>.module.ts
 ```
@@ -36,7 +35,7 @@ Convenciones:
 - **Inversión de dependencias.** Los servicios inyectan interfaces (`IOrderRepository`, `ICartRepository`, …) con tokens string (`ORDER_REPOSITORY`). Nunca Prisma directo desde `application`.
 - **Lecturas entre módulos** por tokens/servicios exportados, no por modelos Prisma ajenos.
 - **Transacciones** vía `ITransactionManager` (`transactions.run`). Checkout (stock + pedido + vaciar carrito) y cancelación (devolver stock) son atómicos: Prisma hace rollback si falla un paso.
-- **Eventos** con `EventEmitter2`. `order.status.changed` alimenta el gateway Socket.IO y WhatsApp.
+- **Eventos** con `EventEmitter2`. `order.status.changed` alimenta el gateway Socket.IO.
 - Validación global: `whitelist` + `forbidNonWhitelisted` + `transform`.
 - CORS: cualquier origen, con credenciales.
 
@@ -51,7 +50,6 @@ Notas de diseño SOLID (pagos, notifiers, capas): [`docs/solid-propuesta.md`](..
 | `carrito` | Carrito persistente por usuario |
 | `pedidos` | Checkout, listados, transiciones de estado |
 | `pagos` | Cobro de pedidos `PENDIENTE` |
-| `notificaciones` | WhatsApp en `PAGADO` y `ENVIADO` |
 | `shared` | Prisma, `ITransactionManager`, guards JWT/roles, `@CurrentUser()` |
 
 ## Arranque local
@@ -81,7 +79,6 @@ Archivo `.env` en **esta** carpeta. No se commitea.
 | `PAYMENT_CURRENCY` | no | Default según pasarela; en el proyecto se usa `PEN` |
 | `CULQI_SECRET_KEY` | si provider = culqi | Clave **secreta** (el storefront usa la pública) |
 | `MERCADOPAGO_ACCESS_TOKEN` | si provider = mercadopago | |
-| `WHATSAPP_SESSION_PATH` | no | Default `./wa-auth`. En Docker: `/data/wa-auth` |
 
 Ejemplo mínimo:
 
@@ -91,7 +88,6 @@ DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/atelier
 JWT_SECRET=cambia-este-secreto
 PAYMENT_PROVIDER=culqi
 PAYMENT_CURRENCY=PEN
-WHATSAPP_SESSION_PATH=./wa-auth
 ```
 
 ## Prisma
@@ -152,26 +148,7 @@ ENVIADO   → ENTREGADO
 
 - Solo pedidos `PENDIENTE`.
 - El `token` lo emite el widget de la pasarela en el frontend (Culqi Checkout, etc.).
-- Si el cobro confirma, el pedido pasa a `PAGADO` (y dispara WhatsApp + WebSocket).
-
-## WhatsApp
-
-Implementación actual: **Baileys** (sesión tipo WhatsApp Web). Sirve para demo local. **No es la Cloud API de Meta**; en producción el número se puede banear. El código ya depende de `INotifier`: se puede cambiar el adapter sin tocar el caso de uso.
-
-Comportamiento:
-
-1. Al arrancar, si no hay sesión, imprime un **QR** en la consola. Escanéalo con WhatsApp.
-2. Las credenciales quedan en `WHATSAPP_SESSION_PATH` (`.wa-auth/`). Está en `.gitignore`.
-3. Solo envía en `PAGADO` y `ENVIADO`.
-4. Sin `phone` en el usuario: se loguea y se omite el envío.
-5. Si WhatsApp no está conectado, el pedido **igual** cambia de estado; falla solo la notificación.
-
-Mensajes:
-
-- Pagado: `Tu pedido {id} fue pagado y lo estamos preparando.`
-- Enviado: `Tu pedido {id} fue enviado.`
-
-Si la sesión se cierra: borra `.wa-auth` y vuelve a escanear.
+- Si el cobro confirma, el pedido pasa a `PAGADO` (y dispara el WebSocket).
 
 ## WebSocket
 

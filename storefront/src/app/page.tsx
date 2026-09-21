@@ -16,7 +16,7 @@ const HIGHLIGHTS = [
   },
   {
     title: "Soporte",
-    body: "Un equipo real respondiendo por WhatsApp en cada etapa del pedido.",
+    body: "Un equipo real respondiendo en cada etapa del pedido.",
   },
 ];
 

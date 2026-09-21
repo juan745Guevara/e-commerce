@@ -58,8 +58,6 @@ PAGADO    → ENVIADO
 ENVIADO   → ENTREGADO
 ```
 
-`PAGADO` / `ENVIADO` también disparan WhatsApp en el backend si el cliente tiene teléfono.
-
 ## Arranque local
 
 API en `http://localhost:3000`. Usuario con `role = 'admin'`.

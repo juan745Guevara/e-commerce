@@ -2,7 +2,7 @@
 
 Monorepo de e-commerce: API, vitrina pública y panel de administración, detrás de nginx.
 
-El **backend** es dueño de auth, catálogo, carrito, pedidos, pagos y avisos por WhatsApp. Storefront y admin son clientes: **no** hablan con Postgres ni con Cloudinary.
+El **backend** es dueño de auth, catálogo, carrito, pedidos y pagos. Storefront y admin son clientes: **no** hablan con Postgres ni con Cloudinary.
 
 | App | Carpeta | Stack | Puerto local | README |
 | --- | --- | --- | --- | --- |
@@ -26,7 +26,6 @@ El **backend** es dueño de auth, catálogo, carrito, pedidos, pagos y avisos po
                                    ▼
                          PostgreSQL · Cloudinary
                          Culqi / Mercado Pago
-                         WhatsApp (Baileys)
 ```
 
 - El **navegador de la tienda** no llama a la API para nada de sesión: usa Route Handlers en `storefront/src/app/api/*` (BFF). El JWT vive en cookie httpOnly.
@@ -41,7 +40,6 @@ El **backend** es dueño de auth, catálogo, carrito, pedidos, pagos y avisos po
 - Checkout atómico: stock + pedido + vaciar carrito en una transacción.
 - Pedidos: `PENDIENTE` → `PAGADO` → `ENVIADO` → `ENTREGADO` (`PENDIENTE` también puede ir a `CANCELADO`).
 - Pagos: Culqi (default) o Mercado Pago, según `PAYMENT_PROVIDER`.
-- WhatsApp (Baileys, prototipo): aviso al cliente en `PAGADO` y `ENVIADO` si tiene teléfono.
 - Admin en vivo: Socket.IO, evento `order.status.changed`.
 - ISR en home y catálogo (revalidación cada 120 s).
 
@@ -49,7 +47,7 @@ El **backend** es dueño de auth, catálogo, carrito, pedidos, pagos y avisos po
 
 - Node.js 24 y npm
 - PostgreSQL 16+ (o Docker)
-- Opcional: Cloudinary, Culqi o Mercado Pago, un teléfono con WhatsApp para el QR de Baileys
+- Opcional: Cloudinary, Culqi o Mercado Pago
 
 ## Desarrollo local
 
@@ -162,7 +160,7 @@ Base: `http://localhost:3000`. Rutas protegidas: `Authorization: Bearer <token>`
 | `POST` | `/pagos/charge` | JWT | Cobrar `{ orderId, token }` |
 | `GET` | `/health` | — | `{ "status": "ok" }` |
 
-Detalle de módulos, Prisma y WhatsApp: [backend/README.md](backend/README.md).
+Detalle de módulos y Prisma: [backend/README.md](backend/README.md).
 
 ## Estructura del repo
 
@@ -182,7 +180,6 @@ docs/         notas de diseño (SOLID)
 | Sesión inválida en la tienda | `JWT_SECRET` de storefront ≠ backend |
 | Admin apunta a la API vieja | `VITE_API_URL` es de build; reinicia `npm run dev` o rebuild Docker |
 | Checkout sin tarjeta | Faltan `NEXT_PUBLIC_CULQI_PUBLIC_KEY` (y provider) en storefront |
-| WhatsApp no manda | Sin QR escaneado, o el usuario no tiene `phone` |
 | Imágenes rotas | Cloudinary mal configurado, o el host no es `res.cloudinary.com` |
 
 ## Licencia
