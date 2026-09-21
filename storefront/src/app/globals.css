@@ -107,10 +107,15 @@ body {
   padding: 0.65rem 1.35rem;
   background: var(--accent);
   color: #fff;
-  transition: background-color 150ms ease-out;
+  transition: background-color 150ms ease-out, transform 150ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .btn-pill:hover {
+  background: var(--accent-hover);
+}
+
+.btn-pill:active {
+  transform: scale(0.97);
   background: var(--accent-hover);
 }
 
@@ -129,10 +134,15 @@ body {
   padding: 0.65rem 1.35rem;
   background: var(--surface);
   color: var(--foreground);
-  transition: background-color 150ms ease-out;
+  transition: background-color 150ms ease-out, transform 150ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .btn-pill-secondary:hover {
+  background: var(--surface-dim);
+}
+
+.btn-pill-secondary:active {
+  transform: scale(0.97);
   background: var(--surface-dim);
 }
 
@@ -152,9 +162,54 @@ body {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
+    animation-duration: 120ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation-timing-function: ease-out !important;
+    transition-property: opacity !important;
+    transition-duration: 120ms !important;
+    transition-timing-function: ease-out !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Reduced transparency: swap translucent materials for solid surfaces. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-nav {
+    background: var(--background);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .glass-card {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Increased contrast: near-solid backgrounds with a defined border instead of soft blur/opacity. */
+@media (prefers-contrast: more) {
+  .glass-nav {
+    background: var(--background);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-bottom-color: var(--foreground);
+  }
+
+  .glass-card {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 1px solid var(--foreground);
+  }
+
+  .btn-pill,
+  .btn-pill-secondary {
+    border: 1px solid var(--foreground);
+  }
+
+  .line-chevron,
+  .link-chevron {
+    text-decoration: underline;
   }
 }

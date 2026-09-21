@@ -90,7 +90,7 @@ export function CartView() {
               <p className="text-sm text-muted">{formatMoney(item.unitPrice)}</p>
               <button
                 type="button"
-                className="mt-1 w-fit text-sm text-accent hover:underline"
+                className="mt-1 w-fit text-sm text-accent transition hover:underline active:opacity-60"
                 onClick={() => {
                   void browserApi
                     .removeCartItem(item.productId)

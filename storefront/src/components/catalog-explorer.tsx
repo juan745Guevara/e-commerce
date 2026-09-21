@@ -34,8 +34,8 @@ export function CatalogExplorer({
             onClick={() => setCategoryId("")}
             className={
               categoryId === ""
-                ? "rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background transition"
-                : "rounded-full bg-surface px-4 py-1.5 text-sm font-medium text-muted transition hover:text-foreground"
+                ? "rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background transition active:scale-95"
+                : "rounded-full bg-surface px-4 py-1.5 text-sm font-medium text-muted transition hover:text-foreground active:scale-95"
             }
           >
             Todo
@@ -47,8 +47,8 @@ export function CatalogExplorer({
               onClick={() => setCategoryId(category.id)}
               className={
                 categoryId === category.id
-                  ? "rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background transition"
-                  : "rounded-full bg-surface px-4 py-1.5 text-sm font-medium text-muted transition hover:text-foreground"
+                  ? "rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background transition active:scale-95"
+                  : "rounded-full bg-surface px-4 py-1.5 text-sm font-medium text-muted transition hover:text-foreground active:scale-95"
               }
             >
               {category.name}

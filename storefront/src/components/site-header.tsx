@@ -77,7 +77,7 @@ export function SiteHeader() {
             <Link
               key={link.href}
               href={link.href}
-              className="transition-colors hover:text-foreground"
+              className="transition-colors hover:text-foreground active:opacity-60"
             >
               {link.label}
             </Link>
@@ -92,14 +92,17 @@ export function SiteHeader() {
               <LogoutButton />
             </>
           ) : (
-            <Link href="/login" className="transition-colors hover:text-foreground">
+            <Link
+              href="/login"
+              className="transition-colors hover:text-foreground active:opacity-60"
+            >
               Entrar
             </Link>
           )}
           <Link
             href="/carrito"
             aria-label="Carrito"
-            className="relative flex items-center text-foreground transition-colors hover:text-muted"
+            className="relative flex items-center text-foreground transition hover:text-muted active:scale-90"
           >
             <svg
               width="18"

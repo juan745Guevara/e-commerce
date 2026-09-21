@@ -15,7 +15,7 @@ export function LogoutButton() {
     <button
       type="button"
       onClick={() => void logout()}
-      className="transition-colors hover:text-foreground"
+      className="transition hover:text-foreground active:opacity-60"
     >
       Salir
     </button>
