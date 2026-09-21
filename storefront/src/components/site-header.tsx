@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { browserApi } from "@/lib/api/browser";
+import { CART_CHANGED_EVENT } from "@/lib/cart/cart-events";
 import { LogoutButton } from "./logout-button";
 
 type SessionUser = { email: string; role: string };
@@ -27,12 +28,28 @@ export function SiteHeader() {
 
   useEffect(() => {
     if (!user) {
+      setCartCount(0);
       return;
     }
-    void browserApi
-      .getCart()
-      .then((cart) => setCartCount(cart.items.length))
-      .catch(() => setCartCount(0));
+
+    let cancelled = false;
+    const loadCartCount = () => {
+      void browserApi
+        .getCart()
+        .then((cart) => {
+          if (!cancelled) setCartCount(cart.items.length);
+        })
+        .catch(() => {
+          if (!cancelled) setCartCount(0);
+        });
+    };
+
+    loadCartCount();
+    window.addEventListener(CART_CHANGED_EVENT, loadCartCount);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CART_CHANGED_EVENT, loadCartCount);
+    };
   }, [user]);
 
   useEffect(() => {

@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { motion } from "motion/react";
 import { ApiError } from "@/lib/api/client";
 import { browserApi } from "@/lib/api/browser";
+import { useCulqiCheckout } from "@/lib/payments/use-culqi-checkout";
 import type { Order, OrderStatus } from "@/lib/api/types";
 import { formatMoney } from "@/lib/money";
+import { OrderTimeline } from "./order-timeline";
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
   PENDIENTE: "bg-amber-100 text-amber-800",
@@ -18,6 +21,19 @@ const STATUS_STYLES: Record<OrderStatus, string> = {
 export function OrdersView() {
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const {
+    paymentAvailable,
+    culqiReady,
+    payingOrderId,
+    error: payError,
+    open: openCulqi,
+  } = useCulqiCheckout((updated) => {
+    setOrders((current) =>
+      current?.map((order) => (order.id === updated.id ? updated : order)) ??
+      current,
+    );
+  });
 
   useEffect(() => {
     void (async () => {
@@ -58,24 +74,58 @@ export function OrdersView() {
 
   return (
     <ul className="flex flex-col divide-y divide-line rounded-3xl bg-surface px-5">
-      {orders.map((order) => (
-        <li
-          key={order.id}
-          className="flex flex-wrap items-center justify-between gap-3 py-5"
-        >
-          <div>
-            <p className="font-mono text-xs text-muted">{order.id}</p>
-            <p className="mt-1 text-[15px] font-medium">
-              {formatMoney(order.total)}
-            </p>
-          </div>
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_STYLES[order.status]}`}
-          >
-            {order.status}
-          </span>
-        </li>
-      ))}
+      {orders.map((order) => {
+        const isPaying = payingOrderId === order.id;
+
+        return (
+          <li key={order.id} className="flex flex-col gap-4 py-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-mono text-xs text-muted">{order.id}</p>
+                <p className="mt-1 text-[15px] font-medium">
+                  {formatMoney(order.total)}
+                </p>
+              </div>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_STYLES[order.status]}`}
+              >
+                {order.status}
+              </span>
+            </div>
+            <OrderTimeline status={order.status} />
+            {order.status === "PENDIENTE" ? (
+              <div className="flex flex-col gap-2 border-t border-line pt-4">
+                {paymentAvailable ? (
+                  <>
+                    {isPaying && payError ? (
+                      <p className="text-xs text-red-600">{payError}</p>
+                    ) : null}
+                    <motion.button
+                      type="button"
+                      onClick={() => openCulqi(order)}
+                      disabled={!culqiReady || (payingOrderId !== null && !isPaying)}
+                      whileTap={{ scale: 0.97 }}
+                      transition={{ type: "spring", bounce: 0, duration: 0.3 }}
+                      className="btn-pill w-fit px-6 py-2 text-sm"
+                    >
+                      {isPaying
+                        ? "Cobrando…"
+                        : culqiReady
+                          ? "Pagar ahora"
+                          : "Cargando pasarela…"}
+                    </motion.button>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted">
+                    Pago no disponible por ahora — te avisaremos cuando puedas
+                    pagar este pedido.
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }

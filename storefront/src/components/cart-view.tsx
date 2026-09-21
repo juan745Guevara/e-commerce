@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api/client";
 import { browserApi } from "@/lib/api/browser";
 import type { Cart } from "@/lib/api/types";
 import { formatMoney } from "@/lib/money";
+import { notifyCartChanged } from "@/lib/cart/cart-events";
 import { ProductArt } from "./product-art";
 
 export function CartView() {
@@ -93,7 +94,10 @@ export function CartView() {
                 onClick={() => {
                   void browserApi
                     .removeCartItem(item.productId)
-                    .then(setCart)
+                    .then((updated) => {
+                      setCart(updated);
+                      notifyCartChanged();
+                    })
                     .catch((err: unknown) =>
                       setError(
                         err instanceof Error ? err.message : "Error al quitar",
@@ -115,7 +119,10 @@ export function CartView() {
                 if (quantity >= 1) {
                   void browserApi
                     .updateCartItem(item.productId, quantity)
-                    .then(setCart)
+                    .then((updated) => {
+                      setCart(updated);
+                      notifyCartChanged();
+                    })
                     .catch((err: unknown) =>
                       setError(
                         err instanceof Error ? err.message : "Error al actualizar",

@@ -3,6 +3,16 @@
 FROM node:24-alpine AS builder
 WORKDIR /app
 
+# Next.js inlinea las variables NEXT_PUBLIC_* en el bundle del navegador
+# durante `next build`, no en runtime — así que tienen que llegar como build
+# args, no solo como `environment:` en docker-compose.
+ARG NEXT_PUBLIC_PAYMENT_PROVIDER
+ARG NEXT_PUBLIC_CULQI_PUBLIC_KEY
+ARG NEXT_PUBLIC_PAYMENT_CURRENCY
+ENV NEXT_PUBLIC_PAYMENT_PROVIDER=$NEXT_PUBLIC_PAYMENT_PROVIDER
+ENV NEXT_PUBLIC_CULQI_PUBLIC_KEY=$NEXT_PUBLIC_CULQI_PUBLIC_KEY
+ENV NEXT_PUBLIC_PAYMENT_CURRENCY=$NEXT_PUBLIC_PAYMENT_CURRENCY
+
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .

@@ -10,7 +10,7 @@ Corre en el puerto **3001** (el 3000 lo usa la API).
 - Ficha de producto
 - Registro / login / logout
 - Carrito, checkout y historial de pedidos
-- Checkout en dos pasos: crea el pedido y cobra con el token de la pasarela
+- Checkout en dos pasos: crea el pedido y cobra con el widget de Culqi (si no está configurado, muestra "Pago no disponible" en vez de pedirle un token a mano al cliente)
 
 El catálogo se pide al backend desde el servidor. Auth, carrito, pedidos y pagos van por Route Handlers en `/api/*` para no exponer el JWT al navegador.
 
@@ -63,9 +63,18 @@ Abre [http://localhost:3001](http://localhost:3001).
 API_URL=http://localhost:3000
 JWT_SECRET=el-mismo-secreto-del-backend
 COOKIE_SECURE=false
+
+# Opcionales — pago con tarjeta (Culqi Checkout v4). Sin esto, /checkout
+# muestra "Pago no disponible" en vez del formulario de tarjeta.
+NEXT_PUBLIC_PAYMENT_PROVIDER=culqi
+NEXT_PUBLIC_CULQI_PUBLIC_KEY=pk_test_...
+NEXT_PUBLIC_PAYMENT_CURRENCY=PEN
 ```
 
-En Docker, `API_URL` apunta a `http://backend:3000`.
+En Docker, `API_URL` apunta a `http://backend:3000`. Las variables
+`NEXT_PUBLIC_*` las lee Next.js al compilar el bundle del navegador, no en
+runtime, así que en `docker-compose.yml` van como `build.args` del servicio
+`storefront`, no solo como `environment`.
 
 ## Estructura
 

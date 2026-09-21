@@ -59,6 +59,10 @@ services:
     build:
       context: ./storefront
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_PAYMENT_PROVIDER: ${NEXT_PUBLIC_PAYMENT_PROVIDER:-}
+        NEXT_PUBLIC_CULQI_PUBLIC_KEY: ${NEXT_PUBLIC_CULQI_PUBLIC_KEY:-}
+        NEXT_PUBLIC_PAYMENT_CURRENCY: ${NEXT_PUBLIC_PAYMENT_CURRENCY:-PEN}
     restart: unless-stopped
     depends_on:
       backend:

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import { ApiError } from "@/lib/api/client";
 import { browserApi } from "@/lib/api/browser";
+import { notifyCartChanged } from "@/lib/cart/cart-events";
 
 export function AddToCartButton({
   productId,
@@ -23,6 +24,7 @@ export function AddToCartButton({
     try {
       await browserApi.addCartItem(productId, 1);
       setMessage("Agregado al carrito");
+      notifyCartChanged();
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         router.push(`/login?next=/producto/${productId}`);
