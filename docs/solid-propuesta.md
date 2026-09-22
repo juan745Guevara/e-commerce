@@ -7,7 +7,7 @@ En cada uno:
 - **Antes (sin SOLID)** = una sola clase gorda que hace de todo (inventado).
 - **Después (con SOLID)** = cómo está **hoy** en `backend/src/`: varias clases, cada una con un rol.
 
-Código simplificado (sin tipos ni decoradores extra). Los nombres de clase y rutas son los del repo.
+Código simplificado (sin tipos ni decoradores extra). En **Después**, el bloque de código muestra **todas** las clases de la tabla — una sección por archivo.
 
 | Letra | Principio | En una frase |
 | --- | --- | --- |
@@ -60,12 +60,33 @@ class PedidosController {
 | `OrderService` | `pedidos/application/services/order.service.ts` | Reglas: checkout, stock, transacción |
 
 ```ts
+// pedidos/presentation/pedidos.controller.ts
 class PedidosController {
   constructor(orders: OrderService) { this.orders = orders; }
 
   @Post('checkout')
   checkout(user) {
     return this.orders.checkout(user.id);
+  }
+}
+
+// pedidos/application/services/order.service.ts
+class OrderService {
+  constructor(carts, products, orders, transactions) { ... }
+
+  async checkout(userId) {
+    const cart = await this.carts.findByUserId(userId);
+    if (!cart?.items.length) throw new BadRequestException('El carrito está vacío');
+
+    return this.transactions.run(async (tx) => {
+      for (const item of cart.items) {
+        const ok = await this.products.decrementStock(item.productId, item.quantity, tx);
+        if (!ok) throw new BadRequestException('Stock insuficiente');
+      }
+      const order = await this.orders.create({ userId, total, items }, tx);
+      await this.carts.clear(cart.id, tx);
+      return order;
+    });
   }
 }
 ```
@@ -101,12 +122,26 @@ class CarritoController {
 | `CartService` | `carrito/application/services/cart.service.ts` | Reglas: stock, upsert, quitar |
 
 ```ts
+// carrito/presentation/carrito.controller.ts
 class CarritoController {
   constructor(cartService: CartService) { this.cartService = cartService; }
 
   @Post('items')
   addItem(user, dto) {
     return this.cartService.addItem(user.id, dto);
+  }
+}
+
+// carrito/application/services/cart.service.ts
+class CartService {
+  constructor(carts, products) { ... }
+
+  async addItem(userId, dto) {
+    const cart = await this.getOrCreate(userId);
+    const product = await this.products.findById(dto.productId);
+    if (product.stock < dto.quantity) throw new BadRequestException('Sin stock');
+
+    return this.carts.upsertItem(cart.id, product.id, dto.quantity);
   }
 }
 ```
@@ -143,18 +178,34 @@ class PaymentService {
 | `MercadoPagoPaymentService` | `pagos/infrastructure/mercadopago-payment.service.ts` | Implementación MP |
 
 ```ts
-// PagosModule — factory
+// pagos/pagos.module.ts — factory elige la pasarela
 useFactory: (config, http, payers) => {
   const provider = config.get('PAYMENT_PROVIDER') ?? 'culqi';
-  if (provider === 'mercadopago') return new MercadoPagoPaymentService(...);
-  return new CulqiPaymentService(...);
-  // Stripe = clase nueva + rama aquí. PaymentService no se toca.
+  if (provider === 'mercadopago') return new MercadoPagoPaymentService(http, config, payers);
+  return new CulqiPaymentService(http, config, payers);
+  // Stripe = clase nueva + rama aquí
 },
 
-// PaymentService — sin if de proveedor
+// pagos/application/services/payment.service.ts
 class PaymentService {
+  constructor(gateway: IPaymentGateway) { this.gateway = gateway; }
+
   charge(order, token) {
     return this.gateway.charge(order.total, token, order.id);
+  }
+}
+
+// pagos/infrastructure/culqi-payment.service.ts
+class CulqiPaymentService implements IPaymentGateway {
+  charge(amount, token, orderId) {
+    return this.http.post('https://api.culqi.com/v2/charges', { ... });
+  }
+}
+
+// pagos/infrastructure/mercadopago-payment.service.ts
+class MercadoPagoPaymentService implements IPaymentGateway {
+  charge(amount, token, orderId) {
+    return this.http.post('https://api.mercadopago.com/...', { ... });
   }
 }
 ```
@@ -190,19 +241,33 @@ class OrderService {
 | (futuro) `EmailListener` | otro módulo | **Escucha** evento → envía mail |
 
 ```ts
-// OrderService — solo emite
+// pedidos/application/services/order.service.ts
 class OrderService {
   changeStatus(id, status) {
-    // validar ORDER_TRANSITIONS, guardar...
-    this.events.emit('order.status.changed', payload);
+    if (!canTransition(actual, status)) throw new BadRequestException(...);
+    const updated = await this.orders.updateStatus(id, status);
+    this.events.emit('order.status.changed', {
+      orderId: updated.id,
+      userId: updated.userId,
+      status: updated.status,
+    });
+    return updated;
   }
 }
 
-// OrderGateway — reacciona aparte
+// pedidos/presentation/order.gateway.ts
 class OrderGateway {
   @OnEvent('order.status.changed')
   broadcastStatusChanged(payload) {
     this.server.to('admins').emit('order.status.changed', payload);
+  }
+}
+
+// (futuro) notificaciones/email.listener.ts
+class EmailListener {
+  @OnEvent('order.status.changed')
+  sendStatusEmail(payload) {
+    // this.mailer.send(payload.userId, payload.status);
   }
 }
 ```
@@ -238,15 +303,29 @@ class PaymentService {
 | `MercadoPagoPaymentService` | `pagos/infrastructure/mercadopago-payment.service.ts` |
 
 ```ts
+// pagos/domain/interfaces/payment-gateway.interface.ts
 interface IPaymentGateway {
-  charge(amount, token, orderId); // → PaymentResult
+  charge(amount, token, orderId); // → PaymentResult { succeeded, chargeId? }
 }
 
-class CulqiPaymentService implements IPaymentGateway { charge(...) { /* Culqi */ } }
-class MercadoPagoPaymentService implements IPaymentGateway { charge(...) { /* MP */ } }
+// pagos/infrastructure/culqi-payment.service.ts
+class CulqiPaymentService implements IPaymentGateway {
+  charge(amount, token, orderId) {
+    // HTTP a api.culqi.com → { succeeded: true, chargeId: '...' }
+  }
+}
 
-// PaymentService — no pregunta cuál es
+// pagos/infrastructure/mercadopago-payment.service.ts
+class MercadoPagoPaymentService implements IPaymentGateway {
+  charge(amount, token, orderId) {
+    // HTTP a Mercado Pago → mismo PaymentResult
+  }
+}
+
+// pagos/application/services/payment.service.ts
 class PaymentService {
+  constructor(gateway: IPaymentGateway) { this.gateway = gateway; }
+
   charge(order, token) {
     const result = await this.gateway.charge(order.total, token, order.id);
     if (!result.succeeded) throw new BadRequestException('Pago rechazado');
@@ -282,20 +361,25 @@ class ProductService {
 | `ProductService` | `catalogo/application/services/product.service.ts` |
 
 ```ts
+// catalogo/domain/interfaces/image-storage.interface.ts
 interface IImageStorage {
   upload(file); // → url (string)
 }
 
+// catalogo/infrastructure/cloudinary/cloudinary.service.ts
 class CloudinaryService implements IImageStorage {
-  upload(file) { /* sube a Cloudinary, devuelve secure_url */ }
+  upload(file) {
+    // cloudinary.uploader.upload_stream → secure_url
+  }
 }
 
+// catalogo/application/services/product.service.ts
 class ProductService {
-  constructor(images: IImageStorage) { this.images = images; }
+  constructor(images: IImageStorage, products) { this.images = images; }
 
   addImage(id, file) {
     const url = await this.images.upload(file);
-    // guardar url en producto...
+    return this.products.update(id, { image: url });
   }
 }
 ```
@@ -333,6 +417,7 @@ class CartService {
 | `CartService` | `carrito/application/services/cart.service.ts` |
 
 ```ts
+// carrito/domain/interfaces/cart-repository.interface.ts
 interface ICartRepository {
   findByUserId(userId);
   upsertItem(cartId, productId, quantity);
@@ -340,8 +425,22 @@ interface ICartRepository {
   clear(cartId);
 }
 
+// carrito/infrastructure/repositories/prisma-cart.repository.ts
+class PrismaCartRepository implements ICartRepository {
+  findByUserId(userId) {
+    return this.prisma.cart.findUnique({ where: { userId }, include: { items: true } });
+  }
+  upsertItem(cartId, productId, quantity) { /* prisma.cartItem.upsert */ }
+  // removeItem, clear...
+}
+
+// carrito/application/services/cart.service.ts
 class CartService {
   constructor(carts: ICartRepository) { this.carts = carts; }
+
+  addItem(userId, dto) {
+    return this.carts.upsertItem(cart.id, dto.productId, dto.quantity);
+  }
 }
 ```
 
@@ -374,13 +473,33 @@ interface IInfra {
 | `ITransactionManager` | `shared/domain/interfaces/transaction-manager.interface.ts` | `run` |
 
 ```ts
-interface IOrderRepository { findById(id); create(data); updateStatus(id, status); }
-interface IPaymentGateway { charge(amount, token, orderId); }
-interface ITransactionManager { run(work); }
+// pedidos/domain/interfaces/order-repository.interface.ts
+interface IOrderRepository {
+  findById(id);
+  create(data);
+  updateStatus(id, status);
+}
 
+// pagos/domain/interfaces/payment-gateway.interface.ts
+interface IPaymentGateway {
+  charge(amount, token, orderId);
+}
+
+// shared/domain/interfaces/transaction-manager.interface.ts
+interface ITransactionManager {
+  run(work);
+}
+
+// pedidos/application/services/order.service.ts
 class OrderService {
-  // inyecta IOrderRepository + ITransactionManager + ICartRepository + IProductRepository
-  // no ve charge() ni upload()
+  constructor(orders: IOrderRepository, transactions: ITransactionManager, ...) { ... }
+  // usa orders + transactions — no ve charge() ni upload()
+}
+
+// pagos/application/services/payment.service.ts
+class PaymentService {
+  constructor(gateway: IPaymentGateway, orders: IOrderRepository) { ... }
+  // usa gateway.charge — no ve upsertItem ni run()
 }
 ```
 
@@ -416,14 +535,35 @@ class PaymentService {
 | Infrastructure | `CulqiPaymentService` / `MercadoPagoPaymentService` | `pagos/infrastructure/` |
 
 ```ts
+// pagos/application/services/payment.service.ts — application
 class PaymentService {
   constructor(gateway: IPaymentGateway) { this.gateway = gateway; }
 
   async charge(order, token) {
     const result = await this.gateway.charge(order.total, token, order.id);
     if (!result.succeeded) throw new BadRequestException('Pago rechazado');
-    // marcar pedido PAGADO...
+    await this.orderService.changeStatus(order.id, 'PAGADO');
   }
+}
+
+// pagos/domain/interfaces/payment-gateway.interface.ts — domain
+interface IPaymentGateway {
+  charge(amount, token, orderId);
+}
+
+// pagos/infrastructure/culqi-payment.service.ts — infrastructure
+class CulqiPaymentService implements IPaymentGateway {
+  charge(amount, token, orderId) {
+    return this.http.post('https://api.culqi.com/v2/charges', {
+      headers: { Authorization: `Bearer ${secret}` },
+      body: { amount, source_id: token },
+    });
+  }
+}
+
+// pagos/infrastructure/mercadopago-payment.service.ts — infrastructure
+class MercadoPagoPaymentService implements IPaymentGateway {
+  charge(amount, token, orderId) { /* otra API, mismo contrato */ }
 }
 ```
 
@@ -458,12 +598,7 @@ class AuthService {
 | Infrastructure | `PrismaUserRepository` | `auth/infrastructure/repositories/prisma-user.repository.ts` |
 
 ```ts
-interface IUserRepository {
-  findByEmail(email);
-  findById(id);
-  create(data);
-}
-
+// auth/application/services/auth.service.ts — application
 class AuthService {
   constructor(users: IUserRepository) { this.users = users; }
 
@@ -471,6 +606,26 @@ class AuthService {
     const user = await this.users.findByEmail(email);
     if (!user) throw new UnauthorizedException();
     // verificar bcrypt, firmar JWT...
+  }
+}
+
+// auth/domain/interfaces/user-repository.interface.ts — domain
+interface IUserRepository {
+  findByEmail(email);
+  findById(id);
+  create(data);
+}
+
+// auth/infrastructure/repositories/prisma-user.repository.ts — infrastructure
+class PrismaUserRepository implements IUserRepository {
+  findByEmail(email) {
+    return this.prisma.user.findUnique({ where: { email } });
+  }
+  findById(id) {
+    return this.prisma.user.findUnique({ where: { id } });
+  }
+  create(data) {
+    return this.prisma.user.create({ data });
   }
 }
 ```
@@ -483,5 +638,5 @@ class AuthService {
 
 1. “Estas **clases** sirven para …”
 2. “**Antes**, una sola clase hacía todo” → tabla o bloque **Antes**.
-3. “**Después**, en Atelier está partido así” → nombra las clases reales → **Después**.
+3. “**Después**, en Atelier está partido así” → recorre **cada clase** del bloque de código.
 4. Cierra con la letra: **S, O, L, I o D**.
