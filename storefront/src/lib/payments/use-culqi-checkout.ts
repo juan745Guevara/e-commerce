@@ -62,21 +62,19 @@ export function useCulqiCheckout(onPaid: (order: Order) => void) {
       }
     };
 
+    const markCulqiReady = () => {
+      if (!window.Culqi) return;
+      window.Culqi.publicKey = process.env.NEXT_PUBLIC_CULQI_PUBLIC_KEY ?? "";
+      setCulqiReady(true);
+    };
+
     if (document.querySelector(`script[src="${CULQI_SCRIPT_SRC}"]`)) {
-      if (window.Culqi) {
-        window.Culqi.publicKey = process.env.NEXT_PUBLIC_CULQI_PUBLIC_KEY ?? "";
-        setCulqiReady(true);
-      }
+      markCulqiReady();
     } else {
       const script = document.createElement("script");
       script.src = CULQI_SCRIPT_SRC;
       script.async = true;
-      script.onload = () => {
-        if (window.Culqi) {
-          window.Culqi.publicKey = process.env.NEXT_PUBLIC_CULQI_PUBLIC_KEY ?? "";
-        }
-        setCulqiReady(true);
-      };
+      script.onload = markCulqiReady;
       document.body.appendChild(script);
     }
 

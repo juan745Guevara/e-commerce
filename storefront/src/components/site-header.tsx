@@ -27,10 +27,7 @@ export function SiteHeader() {
   }, []);
 
   useEffect(() => {
-    if (!user) {
-      setCartCount(0);
-      return;
-    }
+    if (!user) return;
 
     let cancelled = false;
     const loadCartCount = () => {
@@ -58,6 +55,8 @@ export function SiteHeader() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  const badgeCount = user ? cartCount : 0;
 
   return (
     <header
@@ -116,15 +115,15 @@ export function SiteHeader() {
               <path d="M6 8h12l-1.2 10.2a2 2 0 0 1-2 1.8H9.2a2 2 0 0 1-2-1.8L6 8Z" />
               <path d="M9 8V6a3 3 0 0 1 6 0v2" />
             </svg>
-            {cartCount > 0 ? (
+            {badgeCount > 0 ? (
               <motion.span
-                key={cartCount}
+                key={badgeCount}
                 initial={{ scale: 0.6, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: "spring", bounce: 0.5, duration: 0.4 }}
                 className="absolute -right-2 -top-2 flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[10px] font-semibold text-white"
               >
-                {cartCount}
+                {badgeCount}
               </motion.span>
             ) : null}
           </Link>

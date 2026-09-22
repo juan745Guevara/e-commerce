@@ -16,22 +16,30 @@ export function CartView() {
   const [error, setError] = useState<string | null>(null);
   const [unauthorized, setUnauthorized] = useState(false);
 
-  async function load() {
-    try {
-      const data = await browserApi.getCart();
-      setCart(data);
-      setError(null);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        setUnauthorized(true);
-        return;
-      }
-      setError(err instanceof Error ? err.message : "No se pudo cargar el carrito");
-    }
-  }
-
   useEffect(() => {
-    void load();
+    let cancelled = false;
+
+    browserApi
+      .getCart()
+      .then((data) => {
+        if (cancelled) return;
+        setCart(data);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          setUnauthorized(true);
+          return;
+        }
+        setError(
+          err instanceof Error ? err.message : "No se pudo cargar el carrito",
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (unauthorized) {
