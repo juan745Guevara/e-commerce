@@ -2,8 +2,10 @@
 
 Diez ejemplos, **dos por letra**. En cada uno:
 
-- **Mal** = cómo se vería si no usáramos esa letra (inventado).
+- **Mal** = cómo se vería sin esa letra (inventado).
 - **Bien** = lo que **ya tiene el proyecto**.
+
+Los ejemplos omiten tipos y decoradores que no aportan a la idea. Las rutas apuntan al código real.
 
 | Letra | Principio | En una frase |
 | --- | --- | --- |
@@ -34,35 +36,26 @@ Diez ejemplos, **dos por letra**. En cada uno:
 
 ### Mal (inventado)
 
-El controller hace HTTP, Prisma y reglas. Una clase, muchos trabajos.
+El controller hace HTTP, Prisma y reglas en un solo sitio.
 
 ```ts
-@Controller('pedidos')
-class PedidosController {
-  @Post('checkout')
-  async checkout(@CurrentUser() user) {
-    const cart = await prisma.cart.findFirst({ where: { userId: user.id } });
-    if (!cart.items.length) throw new BadRequestException('Vacío');
-    return prisma.order.create({ data: { userId: user.id, total: 99 } });
-  }
+@Post('checkout')
+async checkout(user) {
+  const cart = await prisma.cart.findFirst({ where: { userId: user.id } });
+  if (!cart.items.length) throw new BadRequestException('Vacío');
+  return prisma.order.create({ data: { userId: user.id, total: 99 } });
 }
 ```
 
 ### Bien (el proyecto)
 
-El controller solo enruta. El service aplica la regla.
+El controller enruta; `OrderService` aplica la regla.
 
 ```ts
 // backend/src/pedidos/presentation/pedidos.controller.ts
-@Controller('pedidos')
-@UseGuards(JwtAuthGuard)
-export class PedidosController {
-  constructor(private readonly orders: OrderService) {}
-
-  @Post('checkout')
-  checkout(@CurrentUser() user: AuthenticatedUser) {
-    return this.orders.checkout(user.id); // negocio vive en OrderService
-  }
+@Post('checkout')
+checkout(user) {
+  return this.orders.checkout(user.id);
 }
 ```
 
@@ -72,32 +65,31 @@ export class PedidosController {
 
 ## 2. Página del carrito — **S**
 
-**Para qué sirve.** `/carrito` arma la pantalla. Otro componente carga y edita la bolsa.
+**Para qué sirve.** `/carrito` arma la pantalla. `CartView` carga y edita la bolsa.
 
 ### Mal (inventado)
 
-La página hace fetch, 401, HTML y layout. Todo en un archivo.
+Fetch, botones y layout en la misma página.
 
 ```tsx
 export default async function CartPage() {
-  const res = await fetch('http://localhost:3000/carrito');
-  const cart = await res.json();
+  const cart = await fetch('/api/carrito').then((r) => r.json());
   return cart.items.map((i) => <button>Quitar</button>);
 }
 ```
 
 ### Bien (el proyecto)
 
-La página es el marco. `CartView` pide el carrito, quita ítems y maneja el 401.
+La página es el marco; la lógica vive en el componente hijo.
 
 ```tsx
 // storefront/src/app/carrito/page.tsx
 export default function CartPage() {
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-14">
-      <h1 className="text-headline text-[2rem]">Bolsa</h1>
+    <>
+      <h1>Bolsa</h1>
       <CartView />
-    </div>
+    </>
   );
 }
 ```
@@ -110,7 +102,7 @@ Lo mismo en `/checkout` (`CheckoutView`), `/pedidos` (`OrdersView`) y `/login` (
 
 ## 3. Factory de pasarelas — **O**
 
-**Para qué sirve.** Hoy hay Culqi y Mercado Pago. Una pasarela nueva no reescribe el cobro.
+**Para qué sirve.** Hoy Culqi y Mercado Pago. Una pasarela nueva no reescribe el cobro.
 
 ### Mal (inventado)
 
@@ -126,16 +118,14 @@ async charge(order, token) {
 
 ### Bien (el proyecto)
 
-`PaymentService` solo llama `gateway.charge(...)`. Quién es el gateway lo decide el factory.
+El factory elige la pasarela. `PaymentService` solo llama `gateway.charge(...)`.
 
 ```ts
 // backend/src/pagos/pagos.module.ts
-useFactory: (config, http, payers): IPaymentGateway => {
-  const provider = (config.get('PAYMENT_PROVIDER') ?? 'culqi').toLowerCase();
-  if (provider === 'mercadopago') {
-    return new MercadoPagoPaymentService(http, config, payers);
-  }
-  return new CulqiPaymentService(http, config, payers);
+useFactory: (config, http, payers) => {
+  const provider = config.get('PAYMENT_PROVIDER') ?? 'culqi';
+  if (provider === 'mercadopago') return new MercadoPagoPaymentService(...);
+  return new CulqiPaymentService(...);
   // Stripe = clase nueva + una rama aquí. payment.service.ts no se toca.
 },
 ```
@@ -150,44 +140,44 @@ useFactory: (config, http, payers): IPaymentGateway => {
 
 ### Mal (inventado)
 
-`changeStatus` conoce todos los canales. Cada canal nuevo edita el service.
+`changeStatus` conoce todos los canales.
 
 ```ts
 async changeStatus(id, status) {
   await this.orders.updateStatus(id, status);
   await this.socket.emitToAdmins(...);
-  await this.email.send(...); // otra vez aquí
+  await this.email.send(...); // cada canal nuevo edita aquí
 }
 ```
 
 ### Bien (el proyecto)
 
-`OrderService` solo emite. Quien escuche se suscribe con `@OnEvent`.
+`OrderService` emite. Quien escuche se suscribe con `@OnEvent`.
 
 ```ts
-// backend/src/pedidos/application/services/order.service.ts
-this.events.emit(ORDER_STATUS_CHANGED, payload);
+// order.service.ts
+this.events.emit('order.status.changed', payload);
 
-// backend/src/pedidos/presentation/order.gateway.ts
-@OnEvent(ORDER_STATUS_CHANGED)
-broadcastStatusChanged(payload: OrderStatusChangedEvent): void {
-  this.server.to('admins').emit(ORDER_STATUS_CHANGED, payload);
+// order.gateway.ts
+@OnEvent('order.status.changed')
+broadcastStatusChanged(payload) {
+  this.server.to('admins').emit('order.status.changed', payload);
 }
 ```
 
-Las transiciones válidas también se extienden en un solo mapa (`ORDER_TRANSITIONS` en `order-status.ts`), no con `if` nuevos dentro del service.
+Las transiciones válidas viven en `ORDER_TRANSITIONS` (`order-status.ts`), no en `if` dentro del service.
 
-**O:** extiendes listeners o transiciones; el flujo de `changeStatus` no se reescribe.
+**O:** extiendes listeners o transiciones; `changeStatus` no se reescribe.
 
 ---
 
 ## 5. Culqi y Mercado Pago son intercambiables — **L**
 
-**Para qué sirve.** Las dos clases cumplen el mismo contrato. Nest inyecta una u otra; el cobro no pregunta “¿eres Culqi?”.
+**Para qué sirve.** Las dos clases cumplen el mismo contrato. El cobro no pregunta “¿eres Culqi?”.
 
 ### Mal (inventado)
 
-El caller hace `instanceof` y trata distinto a cada pasarela. Sustituir una por otra rompe el código.
+El caller trata distinto a cada pasarela.
 
 ```ts
 if (gateway instanceof CulqiPaymentService) {
@@ -199,19 +189,18 @@ if (gateway instanceof CulqiPaymentService) {
 
 ### Bien (el proyecto)
 
-Misma firma, mismo `PaymentResult`. Cualquiera puede reemplazar a la otra detrás de `PAYMENT_GATEWAY`.
+Misma firma, mismo resultado. Cualquiera va detrás de `PAYMENT_GATEWAY`.
 
 ```ts
-// backend/src/pagos/domain/interfaces/payment-gateway.interface.ts
-export interface IPaymentGateway {
-  charge(amount: number, token: string, orderId: string): Promise<PaymentResult>;
+interface IPaymentGateway {
+  charge(amount, token, orderId);
 }
 
-export class CulqiPaymentService implements IPaymentGateway { /* charge() */ }
-export class MercadoPagoPaymentService implements IPaymentGateway { /* charge() */ }
-```
+class CulqiPaymentService implements IPaymentGateway { /* charge() */ }
+class MercadoPagoPaymentService implements IPaymentGateway { /* charge() */ }
 
-El caller solo mira `result.succeeded`. No distingue la clase concreta.
+// PaymentService solo mira result.succeeded
+```
 
 **L:** sustituyes Culqi por Mercado Pago y el caso de uso sigue válido.
 
@@ -223,35 +212,28 @@ El caller solo mira `result.succeeded`. No distingue la clase concreta.
 
 ### Mal (inventado)
 
-El service llama a la API de Cloudinary. Cambiar de nube obliga a reescribir el caso de uso, porque la firma y el resultado no son los mismos.
+El service llama directo a Cloudinary.
 
 ```ts
-class ProductService {
-  async addImage(id, file) {
-    const url = await cloudinary.uploader.upload(file); // atado a un proveedor
-  }
+async addImage(id, file) {
+  const url = await cloudinary.uploader.upload(file);
 }
 ```
 
 ### Bien (el proyecto)
 
-`CloudinaryService` implementa `IImageStorage.upload` y devuelve un `string` (la URL). Otra nube haría lo mismo: misma firma, mismo tipo de retorno.
+`CloudinaryService` implementa `IImageStorage`. Otra nube haría lo mismo.
 
 ```ts
-// backend/src/catalogo/domain/interfaces/image-storage.interface.ts
-export interface IImageStorage {
-  upload(file: ImageUpload): Promise<string>;
+interface IImageStorage {
+  upload(file); // → url
 }
 
-// backend/src/catalogo/infrastructure/cloudinary/cloudinary.service.ts
-export class CloudinaryService implements IImageStorage {
-  async upload(file: ImageUpload): Promise<string> {
-    // sube y resuelve result.secure_url
-  }
-}
+class CloudinaryService implements IImageStorage { /* upload() */ }
+
+// ProductService
+this.images.upload(file);
 ```
-
-`ProductService` solo hace `this.images.upload(file)`. Un `S3ImageStorage` con el mismo `upload(): Promise<string>` lo reemplaza sin tocar el catálogo.
 
 **L:** la implementación se sustituye; el caller sigue llamando `upload` y recibe una URL.
 
@@ -263,14 +245,14 @@ export class CloudinaryService implements IImageStorage {
 
 ### Mal (inventado)
 
-Una interfaz gorda. Quien solo quiere subir una foto depende de `charge`, `refund` y `sendEmail`.
+Una interfaz gorda. Quien solo sube una foto depende de `charge` y `refund`.
 
 ```ts
 interface IInfra {
-  charge(...): Promise<...>;
-  refund(...): Promise<...>;
-  upload(...): Promise<...>;
-  runTransaction(...): Promise<...>;
+  charge(...);
+  refund(...);
+  upload(...);
+  runTransaction(...);
 }
 ```
 
@@ -279,20 +261,9 @@ interface IInfra {
 Tres puertos, cada uno con un método:
 
 ```ts
-// pagos
-export interface IPaymentGateway {
-  charge(amount: number, token: string, orderId: string): Promise<PaymentResult>;
-}
-
-// catálogo
-export interface IImageStorage {
-  upload(file: ImageUpload): Promise<string>;
-}
-
-// shared
-export interface ITransactionManager {
-  run<T>(work: (tx: unknown) => Promise<T>): Promise<T>;
-}
+interface IPaymentGateway { charge(amount, token, orderId); }
+interface IImageStorage { upload(file); }
+interface ITransactionManager { run(work); }
 ```
 
 `PaymentService` inyecta `IPaymentGateway`. `ProductService` inyecta `IImageStorage`. Ninguno ve los métodos del otro.
@@ -307,7 +278,7 @@ export interface ITransactionManager {
 
 ### Mal (inventado)
 
-Un solo repo con todo. Quien pide el carrito arrastra stock, órdenes y usuarios.
+Un solo repo con todo.
 
 ```ts
 interface IRepository {
@@ -315,29 +286,28 @@ interface IRepository {
   upsertCartItem(...);
   createOrder(...);
   updateOrderStatus(...);
-  decrementStock(...);
 }
 ```
 
 ### Bien (el proyecto)
 
-Interfaces y tokens por módulo:
+Interfaces por módulo:
 
 ```ts
-// backend/src/carrito/domain/interfaces/cart-repository.interface.ts
-export interface ICartRepository {
-  findByUserId(userId: string): Promise<Cart | null>;
-  upsertItem(cartId: string, productId: string, quantity: number): Promise<Cart>;
-  removeItem(cartId: string, productId: string): Promise<Cart>;
-  clear(cartId: string, tx?: unknown): Promise<void>;
+// carrito
+interface ICartRepository {
+  findByUserId(userId);
+  upsertItem(cartId, productId, quantity);
+  removeItem(cartId, productId);
+  clear(cartId);
 }
 
-// backend/src/pedidos/domain/interfaces/order-repository.interface.ts
-export interface IOrderRepository {
-  findById(id: string): Promise<Order | null>;
-  findByUserId(userId: string): Promise<Order[]>;
-  create(data: CreateOrderData, tx?: unknown): Promise<Order>;
-  updateStatus(id: string, status: OrderStatus, tx?: unknown): Promise<Order>;
+// pedidos
+interface IOrderRepository {
+  findById(id);
+  findByUserId(userId);
+  create(data);
+  updateStatus(id, status);
 }
 ```
 
@@ -347,39 +317,34 @@ export interface IOrderRepository {
 
 ## 9. Cobrar sin conocer Culqi — **D**
 
-**Para qué sirve.** El cliente paga un pedido `PENDIENTE`. El dinero lo cobra Culqi o Mercado Pago, según `.env`.
+**Para qué sirve.** El cliente paga un pedido `PENDIENTE`. Culqi o Mercado Pago cobran según `.env`.
 
 ### Mal (inventado)
 
-El cobro habla directo con Culqi. Cambiar de pasarela reescribe la clase.
+El cobro habla directo con Culqi.
 
 ```ts
-class PaymentService {
-  async charge(order, token) {
-    const res = await fetch('https://api.culqi.com/v2/charges', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer sk_test_...' },
-      body: JSON.stringify({ amount: order.total, source_id: token }),
-    });
-    return res.json();
-  }
+async charge(order, token) {
+  const res = await fetch('https://api.culqi.com/v2/charges', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer sk_test_...' },
+    body: JSON.stringify({ amount: order.total, source_id: token }),
+  });
+  return res.json();
 }
 ```
 
 ### Bien (el proyecto)
 
-`PaymentService` no importa Culqi. Llama a `IPaymentGateway`. Nest inyecta la clase concreta.
+`PaymentService` no importa Culqi. Llama a `IPaymentGateway`.
 
 ```ts
 // backend/src/pagos/application/services/payment.service.ts
-constructor(
-  @Inject(PAYMENT_GATEWAY)
-  private readonly gateway: IPaymentGateway,
-) {}
+constructor(gateway) { this.gateway = gateway; }
 
-const result = await this.gateway.charge(order.total, dto.token, order.id);
-if (!result.succeeded) {
-  throw new BadRequestException('El pago no pudo confirmarse');
+async charge(order, token) {
+  const result = await this.gateway.charge(order.total, token, order.id);
+  if (!result.succeeded) throw new BadRequestException('Pago rechazado');
 }
 ```
 
@@ -396,11 +361,9 @@ if (!result.succeeded) {
 Auth usa Prisma. No puedes testear el login sin base de datos.
 
 ```ts
-class AuthService {
-  async login(email, password) {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) throw new UnauthorizedException();
-  }
+async login(email, password) {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) throw new UnauthorizedException();
 }
 ```
 
@@ -409,18 +372,14 @@ class AuthService {
 Auth pide usuarios a `IUserRepository`. PostgreSQL está en `PrismaUserRepository`.
 
 ```ts
-// backend/src/auth/domain/interfaces/user-repository.interface.ts
-export interface IUserRepository {
-  findByEmail(email: string): Promise<User | null>;
-  findById(id: string): Promise<User | null>;
-  create(data: CreateUserData): Promise<User>;
+interface IUserRepository {
+  findByEmail(email);
+  findById(id);
+  create(data);
 }
 
-// backend/src/auth/application/services/auth.service.ts
-constructor(
-  @Inject(USER_REPOSITORY)
-  private readonly users: IUserRepository, // no PrismaService
-) {}
+// auth.service.ts
+constructor(users) { this.users = users; } // IUserRepository, no Prisma
 ```
 
 **D:** el login depende de la interfaz. El repo se puede mockear en tests.
