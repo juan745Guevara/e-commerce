@@ -1,300 +1,338 @@
-# Propuesta SOLID — Atelier
+# Propuesta SOLID — Atelier (backend)
 
-Diez ejemplos, **dos por letra**. En cada uno:
+Diez ejemplos del **backend NestJS**, **dos por letra**. Todos son **clases** reales del proyecto.
 
-- **Mal** = cómo se vería sin esa letra (inventado).
-- **Bien** = lo que **ya tiene el proyecto**.
+En cada uno:
 
-Los ejemplos omiten tipos y decoradores que no aportan a la idea. Las rutas apuntan al código real.
+- **Antes (sin SOLID)** = una sola clase gorda que hace de todo (inventado).
+- **Después (con SOLID)** = cómo está **hoy** en `backend/src/`: varias clases, cada una con un rol.
+
+Código simplificado (sin tipos ni decoradores extra). Los nombres de clase y rutas son los del repo.
 
 | Letra | Principio | En una frase |
 | --- | --- | --- |
 | **S** | SRP | Una clase, un trabajo. |
 | **O** | OCP | Abierto a extensión, cerrado a modificación. |
-| **L** | LSP | Sustituyes la implementación y el caller no se rompe. |
-| **I** | ISP | Interfaces chicas: el cliente no arrastra métodos que no usa. |
-| **D** | DIP | Dependes de una interfaz, no de Culqi / Prisma. |
+| **L** | LSP | Cambias la implementación y quien la usa no se rompe. |
+| **I** | ISP | Interfaces chicas: no arrastras métodos que no usas. |
+| **D** | DIP | La lógica depende de un contrato, no de Culqi / Prisma. |
 
-| # | Letra | Ejemplo |
+| # | Letra | Clases |
 | --- | --- | --- |
-| 1 | **S** | Controller de pedidos vs service |
-| 2 | **S** | Página del carrito vs `CartView` |
-| 3 | **O** | Factory de pasarelas |
-| 4 | **O** | Listeners cuando cambia el pedido |
-| 5 | **L** | Culqi ↔ Mercado Pago |
-| 6 | **L** | Cloudinary ↔ otra nube de imágenes |
-| 7 | **I** | Puertos de un solo método |
-| 8 | **I** | Un repositorio por módulo |
-| 9 | **D** | Cobrar sin conocer Culqi |
-| 10 | **D** | Login sin conocer Prisma |
+| 1 | **S** | `PedidosController` → `OrderService` |
+| 2 | **S** | `CarritoController` → `CartService` |
+| 3 | **O** | `PagosModule` (factory) + pasarelas |
+| 4 | **O** | `OrderService` → evento → `OrderGateway` |
+| 5 | **L** | `CulqiPaymentService` ↔ `MercadoPagoPaymentService` |
+| 6 | **L** | `CloudinaryService` implementa `IImageStorage` |
+| 7 | **I** | `ICartRepository` vs interfaz gorda |
+| 8 | **I** | `IOrderRepository`, `IPaymentGateway`, `ITransactionManager` |
+| 9 | **D** | `PaymentService` → `IPaymentGateway` |
+| 10 | **D** | `AuthService` → `IUserRepository` |
 
 ---
 
-## 1. Controller de pedidos — **S**
+## 1. Checkout de pedidos — **S**
 
-**Para qué sirve.** Recibe HTTP y responde JSON. No calcula stock ni crea filas.
+**Para qué sirve.** El cliente confirma la compra. Alguien recibe HTTP; otro aplica stock, total y crea el pedido.
 
-### Mal (inventado)
+### Antes (sin SOLID) — una clase
 
-El controller hace HTTP, Prisma y reglas en un solo sitio.
+`PedidosController` hace HTTP **y** Prisma **y** reglas de negocio.
 
 ```ts
-@Post('checkout')
-async checkout(user) {
-  const cart = await prisma.cart.findFirst({ where: { userId: user.id } });
-  if (!cart.items.length) throw new BadRequestException('Vacío');
-  return prisma.order.create({ data: { userId: user.id, total: 99 } });
+class PedidosController {
+  @Post('checkout')
+  async checkout(user) {
+    const cart = await prisma.cart.findFirst({ where: { userId: user.id } });
+    if (!cart.items.length) throw new BadRequestException('Vacío');
+    // validar stock, descontar, crear pedido, vaciar carrito...
+    return prisma.order.create({ data: { userId: user.id, total: 99 } });
+  }
 }
 ```
 
-### Bien (el proyecto)
+### Después (con SOLID) — dos clases
 
-El controller enruta; `OrderService` aplica la regla.
+| Clase | Archivo | Trabajo |
+| --- | --- | --- |
+| `PedidosController` | `pedidos/presentation/pedidos.controller.ts` | HTTP: ruta, JWT, delegar |
+| `OrderService` | `pedidos/application/services/order.service.ts` | Reglas: checkout, stock, transacción |
 
 ```ts
-// backend/src/pedidos/presentation/pedidos.controller.ts
-@Post('checkout')
-checkout(user) {
-  return this.orders.checkout(user.id);
+class PedidosController {
+  constructor(orders: OrderService) { this.orders = orders; }
+
+  @Post('checkout')
+  checkout(user) {
+    return this.orders.checkout(user.id);
+  }
 }
 ```
 
-**S:** el controller cambia si cambia la ruta. El service cambia si cambia la regla.
+**S:** si cambia la API REST, tocas el controller. Si cambia la regla de checkout, tocas `OrderService`.
 
 ---
 
-## 2. Página del carrito — **S**
+## 2. Carrito — **S**
 
-**Para qué sirve.** `/carrito` arma la pantalla. `CartView` carga y edita la bolsa.
+**Para qué sirve.** Ver la bolsa, agregar ítems, validar stock.
 
-### Mal (inventado)
+### Antes (sin SOLID) — una clase
 
-Fetch, botones y layout en la misma página.
+`CarritoController` valida stock, habla con Prisma y arma la respuesta en cada ruta.
 
-```tsx
-export default async function CartPage() {
-  const cart = await fetch('/api/carrito').then((r) => r.json());
-  return cart.items.map((i) => <button>Quitar</button>);
+```ts
+class CarritoController {
+  @Post('items')
+  async addItem(user, dto) {
+    const product = await prisma.product.findUnique({ where: { id: dto.productId } });
+    if (product.stock < dto.quantity) throw new BadRequestException('Sin stock');
+    // upsert cart item, recalcular total...
+  }
 }
 ```
 
-### Bien (el proyecto)
+### Después (con SOLID) — dos clases
 
-La página es el marco; la lógica vive en el componente hijo.
+| Clase | Archivo | Trabajo |
+| --- | --- | --- |
+| `CarritoController` | `carrito/presentation/carrito.controller.ts` | HTTP: GET/POST/PATCH/DELETE |
+| `CartService` | `carrito/application/services/cart.service.ts` | Reglas: stock, upsert, quitar |
 
-```tsx
-// storefront/src/app/carrito/page.tsx
-export default function CartPage() {
-  return (
-    <>
-      <h1>Bolsa</h1>
-      <CartView />
-    </>
-  );
+```ts
+class CarritoController {
+  constructor(cartService: CartService) { this.cartService = cartService; }
+
+  @Post('items')
+  addItem(user, dto) {
+    return this.cartService.addItem(user.id, dto);
+  }
 }
 ```
 
-Lo mismo en `/checkout` (`CheckoutView`), `/pedidos` (`OrdersView`) y `/login` (`LoginForm`).
-
-**S:** si cambia el layout, no tocas el fetch. Si cambia el fetch, no tocas la página.
+**S:** el controller no sabe de stock ni de tablas; `CartService` no sabe de rutas HTTP.
 
 ---
 
-## 3. Factory de pasarelas — **O**
+## 3. Pasarelas de pago — **O**
 
-**Para qué sirve.** Hoy Culqi y Mercado Pago. Una pasarela nueva no reescribe el cobro.
+**Para qué sirve.** Cobrar con Culqi o Mercado Pago según `.env`. Mañana puede entrar otra pasarela.
 
-### Mal (inventado)
+### Antes (sin SOLID) — una clase
 
-Cada proveedor nuevo abre `PaymentService` y le mete otro `if`.
+`PaymentService` conoce cada proveedor por dentro.
 
 ```ts
-async charge(order, token) {
-  if (provider === 'culqi') { /* HTTP Culqi */ }
-  else if (provider === 'mercadopago') { /* HTTP MP */ }
-  else if (provider === 'stripe') { /* otra vez aquí */ }
+class PaymentService {
+  async charge(order, token) {
+    if (provider === 'culqi') { /* HTTP Culqi */ }
+    else if (provider === 'mercadopago') { /* HTTP MP */ }
+    else if (provider === 'stripe') { /* otra vez aquí */ }
+  }
 }
 ```
 
-### Bien (el proyecto)
+### Después (con SOLID) — factory + clases por proveedor
 
-El factory elige la pasarela. `PaymentService` solo llama `gateway.charge(...)`.
+| Clase | Archivo | Trabajo |
+| --- | --- | --- |
+| `PaymentService` | `pagos/application/services/payment.service.ts` | Caso de uso: cobrar pedido PENDIENTE |
+| `PagosModule` | `pagos/pagos.module.ts` | Factory: elige pasarela según env |
+| `CulqiPaymentService` | `pagos/infrastructure/culqi-payment.service.ts` | Implementación Culqi |
+| `MercadoPagoPaymentService` | `pagos/infrastructure/mercadopago-payment.service.ts` | Implementación MP |
 
 ```ts
-// backend/src/pagos/pagos.module.ts
+// PagosModule — factory
 useFactory: (config, http, payers) => {
   const provider = config.get('PAYMENT_PROVIDER') ?? 'culqi';
   if (provider === 'mercadopago') return new MercadoPagoPaymentService(...);
   return new CulqiPaymentService(...);
-  // Stripe = clase nueva + una rama aquí. payment.service.ts no se toca.
+  // Stripe = clase nueva + rama aquí. PaymentService no se toca.
 },
+
+// PaymentService — sin if de proveedor
+class PaymentService {
+  charge(order, token) {
+    return this.gateway.charge(order.total, token, order.id);
+  }
+}
 ```
 
-**O:** abierto a nuevas pasarelas; cerrado el caso de uso de cobro.
+**O:** pasarela nueva = clase nueva + rama en el factory. `PaymentService` queda cerrado.
 
 ---
 
-## 4. Listeners cuando cambia el pedido — **O**
+## 4. Cambio de estado del pedido — **O**
 
-**Para qué sirve.** Al cambiar el estado, el admin recibe el evento por Socket.IO. Email o métricas se suman sin abrir `OrderService`.
+**Para qué sirve.** Admin cambia `PENDIENTE` → `PAGADO` → `ENVIADO`. El panel recibe el cambio en vivo.
 
-### Mal (inventado)
+### Antes (sin SOLID) — una clase
 
-`changeStatus` conoce todos los canales.
+`OrderService.changeStatus` conoce socket, email y lo que venga.
 
 ```ts
-async changeStatus(id, status) {
-  await this.orders.updateStatus(id, status);
-  await this.socket.emitToAdmins(...);
-  await this.email.send(...); // cada canal nuevo edita aquí
+class OrderService {
+  async changeStatus(id, status) {
+    await this.orders.updateStatus(id, status);
+    await this.socket.emitToAdmins(...);
+    await this.email.send(...); // cada canal nuevo → editar aquí
+  }
 }
 ```
 
-### Bien (el proyecto)
+### Después (con SOLID) — emisor + listeners
 
-`OrderService` emite. Quien escuche se suscribe con `@OnEvent`.
+| Clase | Archivo | Trabajo |
+| --- | --- | --- |
+| `OrderService` | `pedidos/application/services/order.service.ts` | Valida transición, guarda, **emite evento** |
+| `OrderGateway` | `pedidos/presentation/order.gateway.ts` | **Escucha** evento → Socket.IO a admins |
+| (futuro) `EmailListener` | otro módulo | **Escucha** evento → envía mail |
 
 ```ts
-// order.service.ts
-this.events.emit('order.status.changed', payload);
+// OrderService — solo emite
+class OrderService {
+  changeStatus(id, status) {
+    // validar ORDER_TRANSITIONS, guardar...
+    this.events.emit('order.status.changed', payload);
+  }
+}
 
-// order.gateway.ts
-@OnEvent('order.status.changed')
-broadcastStatusChanged(payload) {
-  this.server.to('admins').emit('order.status.changed', payload);
+// OrderGateway — reacciona aparte
+class OrderGateway {
+  @OnEvent('order.status.changed')
+  broadcastStatusChanged(payload) {
+    this.server.to('admins').emit('order.status.changed', payload);
+  }
 }
 ```
 
-Las transiciones válidas viven en `ORDER_TRANSITIONS` (`order-status.ts`), no en `if` dentro del service.
-
-**O:** extiendes listeners o transiciones; `changeStatus` no se reescribe.
+**O:** canal nuevo = clase listener nueva. `OrderService` no se reescribe.
 
 ---
 
-## 5. Culqi y Mercado Pago son intercambiables — **L**
+## 5. Culqi ↔ Mercado Pago — **L**
 
-**Para qué sirve.** Las dos clases cumplen el mismo contrato. El cobro no pregunta “¿eres Culqi?”.
+**Para qué sirve.** Misma operación de cobro; distinto proveedor según configuración.
 
-### Mal (inventado)
-
-El caller trata distinto a cada pasarela.
+### Antes (sin SOLID) — el caller distingue clases
 
 ```ts
-if (gateway instanceof CulqiPaymentService) {
-  await gateway.chargeCulqi(...);
-} else {
-  await gateway.chargeMercadoPago(...);
+class PaymentService {
+  async charge(order, token) {
+    if (this.gateway instanceof CulqiPaymentService) {
+      await this.gateway.chargeCulqi(...);
+    } else {
+      await this.gateway.chargeMercadoPago(...);
+    }
+  }
 }
 ```
 
-### Bien (el proyecto)
+### Después (con SOLID) — contrato + implementaciones intercambiables
 
-Misma firma, mismo resultado. Cualquiera va detrás de `PAYMENT_GATEWAY`.
+| Clase / interfaz | Archivo |
+| --- | --- |
+| `IPaymentGateway` | `pagos/domain/interfaces/payment-gateway.interface.ts` |
+| `CulqiPaymentService` | `pagos/infrastructure/culqi-payment.service.ts` |
+| `MercadoPagoPaymentService` | `pagos/infrastructure/mercadopago-payment.service.ts` |
 
 ```ts
 interface IPaymentGateway {
-  charge(amount, token, orderId);
+  charge(amount, token, orderId); // → PaymentResult
 }
 
-class CulqiPaymentService implements IPaymentGateway { /* charge() */ }
-class MercadoPagoPaymentService implements IPaymentGateway { /* charge() */ }
+class CulqiPaymentService implements IPaymentGateway { charge(...) { /* Culqi */ } }
+class MercadoPagoPaymentService implements IPaymentGateway { charge(...) { /* MP */ } }
 
-// PaymentService solo mira result.succeeded
+// PaymentService — no pregunta cuál es
+class PaymentService {
+  charge(order, token) {
+    const result = await this.gateway.charge(order.total, token, order.id);
+    if (!result.succeeded) throw new BadRequestException('Pago rechazado');
+  }
+}
 ```
 
-**L:** sustituyes Culqi por Mercado Pago y el caso de uso sigue válido.
+**L:** Nest inyecta Culqi o MP; `PaymentService` solo mira `result.succeeded`.
 
 ---
 
-## 6. Cloudinary se puede sustituir — **L**
+## 6. Subida de imágenes — **L**
 
-**Para qué sirve.** Subir la foto del producto. El catálogo pide una URL; no sabe que detrás está Cloudinary.
+**Para qué sirve.** Foto del producto en el catálogo. Hoy Cloudinary; mañana podría ser S3.
 
-### Mal (inventado)
-
-El service llama directo a Cloudinary.
+### Antes (sin SOLID) — clase acoplada al proveedor
 
 ```ts
-async addImage(id, file) {
-  const url = await cloudinary.uploader.upload(file);
+class ProductService {
+  async addImage(id, file) {
+    const url = await cloudinary.uploader.upload(file);
+    await prisma.product.update({ where: { id }, data: { image: url } });
+  }
 }
 ```
 
-### Bien (el proyecto)
+### Después (con SOLID) — contrato + adaptador
 
-`CloudinaryService` implementa `IImageStorage`. Otra nube haría lo mismo.
+| Clase / interfaz | Archivo |
+| --- | --- |
+| `IImageStorage` | `catalogo/domain/interfaces/image-storage.interface.ts` |
+| `CloudinaryService` | `catalogo/infrastructure/cloudinary/cloudinary.service.ts` |
+| `ProductService` | `catalogo/application/services/product.service.ts` |
 
 ```ts
 interface IImageStorage {
-  upload(file); // → url
+  upload(file); // → url (string)
 }
 
-class CloudinaryService implements IImageStorage { /* upload() */ }
+class CloudinaryService implements IImageStorage {
+  upload(file) { /* sube a Cloudinary, devuelve secure_url */ }
+}
 
-// ProductService
-this.images.upload(file);
-```
+class ProductService {
+  constructor(images: IImageStorage) { this.images = images; }
 
-**L:** la implementación se sustituye; el caller sigue llamando `upload` y recibe una URL.
-
----
-
-## 7. Contratos de un solo método — **I**
-
-**Para qué sirve.** Cobrar no arrastra “subir imagen”. Subir imagen no arrastra “abrir transacción”.
-
-### Mal (inventado)
-
-Una interfaz gorda. Quien solo sube una foto depende de `charge` y `refund`.
-
-```ts
-interface IInfra {
-  charge(...);
-  refund(...);
-  upload(...);
-  runTransaction(...);
+  addImage(id, file) {
+    const url = await this.images.upload(file);
+    // guardar url en producto...
+  }
 }
 ```
 
-### Bien (el proyecto)
-
-Tres puertos, cada uno con un método:
-
-```ts
-interface IPaymentGateway { charge(amount, token, orderId); }
-interface IImageStorage { upload(file); }
-interface ITransactionManager { run(work); }
-```
-
-`PaymentService` inyecta `IPaymentGateway`. `ProductService` inyecta `IImageStorage`. Ninguno ve los métodos del otro.
-
-**I:** el cliente depende solo de lo que usa.
+**L:** `S3ImageStorage implements IImageStorage` reemplaza a Cloudinary sin tocar `ProductService`.
 
 ---
 
-## 8. Un repositorio por módulo — **I**
+## 7. Repositorio del carrito — **I**
 
-**Para qué sirve.** Pedidos no necesita `upsertItem` del carrito. Carrito no necesita `updateStatus` del pedido.
+**Para qué sirve.** Persistir ítems de la bolsa. El carrito no necesita métodos de pedidos ni de usuarios.
 
-### Mal (inventado)
-
-Un solo repo con todo.
+### Antes (sin SOLID) — interfaz gorda
 
 ```ts
-interface IRepository {
+interface IEcommerceRepository {
   findUser(...);
   upsertCartItem(...);
   createOrder(...);
   updateOrderStatus(...);
+  decrementStock(...);
+}
+
+class CartService {
+  constructor(repo: IEcommerceRepository) { ... } // arrastra métodos que no usa
 }
 ```
 
-### Bien (el proyecto)
+### Después (con SOLID) — interfaz mínima
 
-Interfaces por módulo:
+| Clase / interfaz | Archivo |
+| --- | --- |
+| `ICartRepository` | `carrito/domain/interfaces/cart-repository.interface.ts` |
+| `PrismaCartRepository` | `carrito/infrastructure/repositories/prisma-cart.repository.ts` |
+| `CartService` | `carrito/application/services/cart.service.ts` |
 
 ```ts
-// carrito
 interface ICartRepository {
   findByUserId(userId);
   upsertItem(cartId, productId, quantity);
@@ -302,74 +340,122 @@ interface ICartRepository {
   clear(cartId);
 }
 
-// pedidos
-interface IOrderRepository {
-  findById(id);
-  findByUserId(userId);
-  create(data);
-  updateStatus(id, status);
+class CartService {
+  constructor(carts: ICartRepository) { this.carts = carts; }
 }
 ```
 
-**I:** cada módulo ve su contrato, no la base de datos entera.
+**I:** `CartService` solo ve operaciones de carrito, no toda la base de datos.
 
 ---
 
-## 9. Cobrar sin conocer Culqi — **D**
+## 8. Interfaces por responsabilidad — **I**
 
-**Para qué sirve.** El cliente paga un pedido `PENDIENTE`. Culqi o Mercado Pago cobran según `.env`.
+**Para qué sirve.** Pedidos, pagos y transacciones son cosas distintas. Cada service inyecta solo lo suyo.
 
-### Mal (inventado)
-
-El cobro habla directo con Culqi.
+### Antes (sin SOLID) — un puerto con todo
 
 ```ts
-async charge(order, token) {
-  const res = await fetch('https://api.culqi.com/v2/charges', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer sk_test_...' },
-    body: JSON.stringify({ amount: order.total, source_id: token }),
-  });
-  return res.json();
+interface IInfra {
+  charge(...);
+  refund(...);
+  upload(...);
+  runTransaction(...);
+  findOrder(...);
 }
 ```
 
-### Bien (el proyecto)
+### Después (con SOLID) — un contrato por trabajo
 
-`PaymentService` no importa Culqi. Llama a `IPaymentGateway`.
+| Interfaz | Archivo | Método principal |
+| --- | --- | --- |
+| `IOrderRepository` | `pedidos/domain/interfaces/order-repository.interface.ts` | CRUD de pedidos |
+| `IPaymentGateway` | `pagos/domain/interfaces/payment-gateway.interface.ts` | `charge` |
+| `ITransactionManager` | `shared/domain/interfaces/transaction-manager.interface.ts` | `run` |
 
 ```ts
-// backend/src/pagos/application/services/payment.service.ts
-constructor(gateway) { this.gateway = gateway; }
+interface IOrderRepository { findById(id); create(data); updateStatus(id, status); }
+interface IPaymentGateway { charge(amount, token, orderId); }
+interface ITransactionManager { run(work); }
 
-async charge(order, token) {
-  const result = await this.gateway.charge(order.total, token, order.id);
-  if (!result.succeeded) throw new BadRequestException('Pago rechazado');
+class OrderService {
+  // inyecta IOrderRepository + ITransactionManager + ICartRepository + IProductRepository
+  // no ve charge() ni upload()
 }
 ```
 
-**D:** el caso de uso depende del contrato, no de la URL ni de la API key.
+**I:** cada clase depende del pedazo de interfaz que realmente usa.
+
+---
+
+## 9. Cobro sin conocer Culqi — **D**
+
+**Para qué sirve.** Confirmar pago de un pedido `PENDIENTE`. El proveedor lo elige `.env`, no el caso de uso.
+
+### Antes (sin SOLID) — lógica pegada a Culqi
+
+```ts
+class PaymentService {
+  async charge(order, token) {
+    const res = await fetch('https://api.culqi.com/v2/charges', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer sk_test_...' },
+      body: JSON.stringify({ amount: order.total, source_id: token }),
+    });
+    return res.json();
+  }
+}
+```
+
+### Después (con SOLID) — caso de uso → abstracción → implementación
+
+| Capa | Clase | Archivo |
+| --- | --- | --- |
+| Application | `PaymentService` | `pagos/application/services/payment.service.ts` |
+| Domain | `IPaymentGateway` | `pagos/domain/interfaces/payment-gateway.interface.ts` |
+| Infrastructure | `CulqiPaymentService` / `MercadoPagoPaymentService` | `pagos/infrastructure/` |
+
+```ts
+class PaymentService {
+  constructor(gateway: IPaymentGateway) { this.gateway = gateway; }
+
+  async charge(order, token) {
+    const result = await this.gateway.charge(order.total, token, order.id);
+    if (!result.succeeded) throw new BadRequestException('Pago rechazado');
+    // marcar pedido PAGADO...
+  }
+}
+```
+
+**D:** `PaymentService` (alto nivel) no importa URLs ni API keys; eso vive en infrastructure.
 
 ---
 
 ## 10. Login sin conocer Prisma — **D**
 
-**Para qué sirve.** Registrar y entrar. Auth busca el email y guarda el usuario. No escribe SQL.
+**Para qué sirve.** Registrar e iniciar sesión. Auth busca email y hashea password; no escribe SQL.
 
-### Mal (inventado)
-
-Auth usa Prisma. No puedes testear el login sin base de datos.
+### Antes (sin SOLID) — service acoplado a Prisma
 
 ```ts
-async login(email, password) {
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) throw new UnauthorizedException();
+class AuthService {
+  constructor(prisma: PrismaService) { this.prisma = prisma; }
+
+  async login(email, password) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw new UnauthorizedException();
+    // verificar bcrypt, firmar JWT...
+  }
 }
 ```
 
-### Bien (el proyecto)
+### Después (con SOLID) — caso de uso → abstracción → adaptador
 
-Auth pide usuarios a `IUserRepository`. PostgreSQL está en `PrismaUserRepository`.
+| Capa | Clase | Archivo |
+| --- | --- | --- |
+| Application | `AuthService` | `auth/application/services/auth.service.ts` |
+| Domain | `IUserRepository` | `auth/domain/interfaces/user-repository.interface.ts` |
+| Infrastructure | `PrismaUserRepository` | `auth/infrastructure/repositories/prisma-user.repository.ts` |
 
 ```ts
 interface IUserRepository {
@@ -378,17 +464,24 @@ interface IUserRepository {
   create(data);
 }
 
-// auth.service.ts
-constructor(users) { this.users = users; } // IUserRepository, no Prisma
+class AuthService {
+  constructor(users: IUserRepository) { this.users = users; }
+
+  async login(email, password) {
+    const user = await this.users.findByEmail(email);
+    if (!user) throw new UnauthorizedException();
+    // verificar bcrypt, firmar JWT...
+  }
+}
 ```
 
-**D:** el login depende de la interfaz. El repo se puede mockear en tests.
+**D:** `AuthService` depende del contrato; PostgreSQL queda en `PrismaUserRepository` (testeable con mock).
 
 ---
 
-## Cómo contarlo (2 minutos por ejemplo)
+## Cómo contarlo (~2 min por ejemplo)
 
-1. “Esto sirve para …”
-2. “Si no hubiera esta letra, quedaría así” → **Mal**.
-3. “En Atelier ya está así” → **Bien**.
-4. Nombrar la letra: **S, O, L, I o D**.
+1. “Estas **clases** sirven para …”
+2. “**Antes**, una sola clase hacía todo” → tabla o bloque **Antes**.
+3. “**Después**, en Atelier está partido así” → nombra las clases reales → **Después**.
+4. Cierra con la letra: **S, O, L, I o D**.
